@@ -114,10 +114,70 @@ Regeln:
 }
 
 /**
+ * Prüft ob zwei Zutatennamen potentiell dasselbe Produkt beschreiben.
+ * Einfache Heuristik für Vorfilterung (ohne AI):
+ * - Stemming: Entfernt typische deutsche Endungen (Plural, Adjektive)
+ * - Wort-Überlappung: Mindestens 1 signifikantes Wort muss übereinstimmen
+ * - Bekannte Synonyme
+ */
+const INGREDIENT_SYNONYMS = new Map([
+  ['sahne', 'schlagsahne'], ['schlagsahne', 'sahne'],
+  ['frühlingszwiebel', 'lauchzwiebel'], ['lauchzwiebel', 'frühlingszwiebel'],
+  ['möhre', 'karotte'], ['karotte', 'möhre'],
+  ['möhren', 'karotten'], ['karotten', 'möhren'],
+  ['porree', 'lauch'], ['lauch', 'porree'],
+  ['champignon', 'pilz'], ['pilz', 'champignon'],
+  ['champignons', 'pilze'], ['pilze', 'champignons'],
+  ['joghurt', 'yoghurt'], ['yoghurt', 'joghurt'],
+  ['paprikapulver', 'paprika edelsüß'],
+]);
+
+function stemGerman(word) {
+  return word
+    .replace(/en$/, '')    // Tomaten → Tomat, Zwiebeln → Zwiebel (nahe genug)
+    .replace(/n$/, '')     // Kartoffeln → Kartoffel
+    .replace(/e$/, '')     // Tomate → Tomat
+    .replace(/er$/, '')    // roter → rot
+    .replace(/es$/, '')    // rotes → rot
+    .replace(/s$/, '');    // Eier → Eier (kein Effekt), allgemein Plural-s
+}
+
+function maybeSameIngredient(nameA, nameB) {
+  const a = nameA.toLowerCase().trim();
+  const b = nameB.toLowerCase().trim();
+  if (a === b) return false; // Exakt gleich = bereits zusammengefasst in simpleMap
+
+  // Synonym-Check
+  if (INGREDIENT_SYNONYMS.get(a) === b) return true;
+
+  // Stemming-Check: gleicher Stamm?
+  const stemA = stemGerman(a);
+  const stemB = stemGerman(b);
+  if (stemA === stemB && stemA.length >= 3) return true;
+
+  // Wort-Überlappung bei mehrwörtigen Namen
+  const wordsA = a.split(/\s+/).map(stemGerman).filter(w => w.length >= 3);
+  const wordsB = b.split(/\s+/).map(stemGerman).filter(w => w.length >= 3);
+  if (wordsA.length > 0 && wordsB.length > 0) {
+    // Mindestens ein signifikantes Wort muss übereinstimmen
+    for (const wa of wordsA) {
+      for (const wb of wordsB) {
+        if (wa === wb) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * KI-gestützte intelligente Deduplizierung.
  * Erkennt semantische Duplikate (Plural/Singular, Synonyme, umgestellte Wörter)
  * und führt sie zusammen. Ersetzt die Standard-Aggregation wenn aktiviert.
- * Fallback: aiAggregateItems() bei KI-Fehler.
+ *
+ * Optimierung: Prüft vorab per Heuristik ob überhaupt Duplikat-Kandidaten existieren.
+ * Wenn keine potentiellen Duplikate gefunden werden, wird die AI nicht aufgerufen
+ * und stattdessen direkt die einfache Aggregation (aiAggregateItems) verwendet.
  */
 async function aiSmartDeduplicateItems(itemsList) {
   // Schritt 1: Identische Zutaten+Einheiten einfach addieren (wie in aiAggregateItems)
@@ -143,7 +203,36 @@ async function aiSmartDeduplicateItems(itemsList) {
     return preAggregated;
   }
 
-  // Schritt 2: Alle Items an die KI zur semantischen Deduplizierung schicken
+  // Schritt 2: Vorab-Heuristik – Gibt es überhaupt potentielle Duplikate?
+  // Prüft per Stemming, Wort-Überlappung und Synonym-Tabelle ob AI nötig ist.
+  let hasCandidates = false;
+  const names = preAggregated.map(i => i.name);
+  outer: for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      if (maybeSameIngredient(names[i], names[j])) {
+        console.log(`🧠 Smart-Dedup: Potentielles Duplikat erkannt: "${names[i]}" ↔ "${names[j]}" → KI wird aufgerufen`);
+        hasCandidates = true;
+        break outer;
+      }
+    }
+  }
+
+  if (!hasCandidates) {
+    // Noch prüfen ob verschiedene Einheiten vorliegen (wie in aiAggregateItems)
+    const nameCount = new Map();
+    for (const item of preAggregated) {
+      const key = item.name.toLowerCase();
+      nameCount.set(key, (nameCount.get(key) || 0) + 1);
+    }
+    const needsUnitMerge = [...nameCount.values()].some(c => c > 1);
+
+    if (!needsUnitMerge) {
+      console.log(`🧠 Smart-Dedup: Keine Duplikat-Kandidaten erkannt → KI-Aufruf übersprungen (${preAggregated.length} Items)`);
+      return preAggregated;
+    }
+  }
+
+  // Schritt 3: KI zur semantischen Deduplizierung aufrufen
   try {
     const ai = getAIProvider({ simple: true });
 
@@ -229,8 +318,8 @@ Antworte als JSON-Array:
     console.log(`🧠 KI-Smart-Dedup: ${preAggregated.length} → ${result.length} Einträge`);
     return result;
   } catch (err) {
-    console.warn('⚠️ KI-Smart-Dedup fehlgeschlagen, nutze Standard-Aggregation:', err.message);
-    return aiAggregateItems(itemsList);
+    console.warn('⚠️ KI-Smart-Dedup fehlgeschlagen, nutze einfache Zusammenfassung (kein 2. AI-Call):', err.message);
+    return preAggregated;
   }
 }
 

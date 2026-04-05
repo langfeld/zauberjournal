@@ -356,75 +356,34 @@ async function findBestProduct(ingredientName, neededAmount, unit, options = {})
 }
 
 /**
- * KI-Produktauswahl aus einer Produktliste.
- * Gibt zurück:
- *   - Match-Objekt mit { product, ... } bei Treffer
- *   - { alternativeSearch: "..." } wenn kein passendes Produkt (KI schlägt Alternativsuche vor)
- *   - undefined wenn KI kein auswertbares Ergebnis liefert
+ * Bereitet die Produktliste für den KI-Prompt auf (gemeinsam für Einzel- und Batch-Matching).
+ * @returns {Array} Aufbereitete Produktliste (max. 12 Items)
  */
-async function aiMatchProducts(ai, ingredientName, neededAmount, unit, withPrice, { forceMatch = false } = {}) {
-  const productList = withPrice.slice(0, 12).map((p, i) => {
+function prepareProductList(withPrice) {
+  return withPrice.slice(0, 12).map((p, i) => {
     const entry = {
       index: i,
       name: p.name,
       price: formatPrice(p.price),
       packageSize: p.packageSize || 'unbekannt',
     };
-    // Einheitspreis aus REWE-Grammage parsen (zuverlässiger als eigene Berechnung)
     const grammagePrice = parseGrammagePrice(p.packageSize);
     if (grammagePrice) {
       entry[grammagePrice.label] = grammagePrice.formatted;
     }
-    // Zusätzlich Stückpreis berechnen wenn Stückzahl im Titel
     if (p.price && p.parsedAmount && (p.parsedUnit === 'stück' || p.parsedUnit === 'stk' || p.parsedUnit === 'st')) {
       entry.pricePerStück = formatPrice(Math.round(p.price / p.parsedAmount));
     }
     return entry;
   });
-
-  const noMatchBlock = forceMatch
-    ? `\nWICHTIG: Du MUSST eines der Produkte wählen – "noMatch" ist KEINE Option. Dies ist bereits eine Alternativsuche. Wähle das am besten passende Produkt.`
-    : `\nKein passendes Produkt (ALLE sind in der falschen Kategorie):\n{\n  "noMatch": true,\n  "alternativeSearch": "breiterer Suchbegriff",\n  "reason": "Warum keines passt"\n}`;
-
-  const prompt = `Wähle das beste REWE-Produkt für diese Zutat:
-
-Benötigt: ${neededAmount || '?'} ${unit || 'Stück'} ${ingredientName}
-
-Verfügbare Produkte:
-${JSON.stringify(productList, null, 2)}
-
-Antworte als JSON:
-
-Treffer:
-{
-  "index": 0,
-  "quantity": 1,
-  "reason": "Kurze Begründung"
 }
-${noMatchBlock}
 
-Regeln:
-- WICHTIG: Wähle das Produkt in der richtigen Produktkategorie! Wenn eine Zutat gesucht wird (z.B. "Belugalinsen"), wähle das Grundnahrungsmittel (Hülsenfrüchte, Reis, Nudeln etc.) – NIEMALS Brotaufstriche, Saucen, Fertiggerichte, Suppen o.ä. die die Zutat nur als Geschmack enthalten.
-- "Streichcreme Belugalinse" / "Brotaufstrich Belugalinse" ist KEIN Ersatz für "Belugalinsen". → noMatch + alternativeSearch: "Linsen"
-- "Tomatensauce" ist KEIN Ersatz für "Tomaten". → noMatch + alternativeSearch: "Tomaten frisch"
-- Wenn KEIN passendes Produkt in der Ergebnisliste ist, antworte mit noMatch und schlage einen breiteren/alternativen Suchbegriff vor (z.B. "Linsen" statt "Belugalinsen", "Petersilie" statt "Blattpetersilie").
-- quantity = Anzahl Packungen die benötigt werden
-- PREIS-LEISTUNG ist das WICHTIGSTE Kriterium bei gleichwertigen Produkten!
-  pricePerKg bzw. pricePerLiter (aus der REWE-Grammage) und pricePerStück sind vorberechnet.
-  Vergleiche diese direkt! Wähle IMMER das Produkt mit dem niedrigsten Einheitspreis, wenn mehrere gleichwertig passen.
-  Eigenmarken (ja!, REWE Beste Wahl) sind oft günstiger als Markenprodukte – bevorzuge sie bei gleichem Produkt.
-- PREISVERGLEICH bei Stückzahlen vs. Netze/Beutel: Wenn z.B. 4 Zwiebeln benötigt werden, rechne um!
-  Ein Zwiebelnetz 1kg enthält ca. 6-8 Zwiebeln (1 Zwiebel ≈ 120-150g), ein Kartoffelnetz 2kg ca. 12-15 Kartoffeln (1 Kartoffel ≈ 130-170g), etc.
-  Vergleiche: Ist 1× Netz günstiger als 4× Einzelzwiebel? Dann wähle das Netz mit quantity=1.
-  Typische Stückgewichte: Zwiebel ≈ 120g, Kartoffel ≈ 150g, Tomate ≈ 130g, Paprika ≈ 170g, Apfel ≈ 180g, Zitrone ≈ 100g, Orange ≈ 200g, Karotte ≈ 80g, Knoblauch ≈ 40g
-- Bevorzuge größere Packungen wenn günstiger pro Einheit
-- Bei Gewichtsangaben (z.B. 500g Kartoffeln): Netz/Sack bevorzugen wenn verfügbar
-- Bevorzuge unverarbeitete Varianten: frisch > tiefgekühlt > Konserve (es sei denn explizit anders gewünscht)`;
-
-  const aiResult = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 256 });
-
-  // KI sagt: kein passendes Produkt → Alternativsuche signalisieren
-  // Robust: verschiedene Key-Schreibweisen der KI akzeptieren
+/**
+ * Verarbeitet ein einzelnes KI-Ergebnis für ein Produkt-Matching.
+ * @returns {{ product, ... } | { alternativeSearch } | undefined}
+ */
+function processAiMatchResult(aiResult, ingredientName, neededAmount, unit, withPrice) {
+  // noMatch → Alternativsuche signalisieren
   if (aiResult?.noMatch || aiResult?.no_match || aiResult?.noResult) {
     const altSearch = aiResult.alternativeSearch || aiResult.alternative_search
       || aiResult.alternativeQuery || aiResult.alternative_query
@@ -432,11 +391,10 @@ Regeln:
     if (altSearch) {
       return { alternativeSearch: altSearch, reason: aiResult.reason };
     }
-    // noMatch ohne Suchvorschlag → letztes Wort/Basisbegriff als Fallback
     console.log(`  ℹ️ KI: noMatch für "${ingredientName}" ohne alternativeSearch-Vorschlag → generiere Fallback-Suchbegriff`);
     const fallbackSearch = ingredientName
-      .replace(/\s*\(.*?\)\s*/g, '')     // Klammern entfernen
-      .replace(/^Bio\s+/i, '')           // "Bio " Prefix entfernen
+      .replace(/\s*\(.*?\)\s*/g, '')
+      .replace(/^Bio\s+/i, '')
       .trim();
     return { alternativeSearch: fallbackSearch, reason: aiResult.reason || 'Kein passendes Produkt' };
   }
@@ -462,9 +420,65 @@ Regeln:
     };
   }
 
-  // Unerwartetes KI-Format → loggen für Debugging
   console.warn(`  ⚠️ KI-Antwort für "${ingredientName}" hat unerwartetes Format:`, JSON.stringify(aiResult));
-  return undefined; // Fallback nutzen
+  return undefined;
+}
+
+/** Gemeinsame Regeln für den KI-Prompt (Einzel- und Batch-Matching). */
+const AI_MATCH_RULES = `Regeln:
+- WICHTIG: Wähle das Produkt in der richtigen Produktkategorie! Wenn eine Zutat gesucht wird (z.B. "Belugalinsen"), wähle das Grundnahrungsmittel (Hülsenfrüchte, Reis, Nudeln etc.) – NIEMALS Brotaufstriche, Saucen, Fertiggerichte, Suppen o.ä. die die Zutat nur als Geschmack enthalten.
+- "Streichcreme Belugalinse" / "Brotaufstrich Belugalinse" ist KEIN Ersatz für "Belugalinsen". → noMatch + alternativeSearch: "Linsen"
+- "Tomatensauce" ist KEIN Ersatz für "Tomaten". → noMatch + alternativeSearch: "Tomaten frisch"
+- Wenn KEIN passendes Produkt in der Ergebnisliste ist, antworte mit noMatch und schlage einen breiteren/alternativen Suchbegriff vor (z.B. "Linsen" statt "Belugalinsen", "Petersilie" statt "Blattpetersilie").
+- quantity = Anzahl Packungen die benötigt werden
+- PREIS-LEISTUNG ist das WICHTIGSTE Kriterium bei gleichwertigen Produkten!
+  pricePerKg bzw. pricePerLiter (aus der REWE-Grammage) und pricePerStück sind vorberechnet.
+  Vergleiche diese direkt! Wähle IMMER das Produkt mit dem niedrigsten Einheitspreis, wenn mehrere gleichwertig passen.
+  Eigenmarken (ja!, REWE Beste Wahl) sind oft günstiger als Markenprodukte – bevorzuge sie bei gleichem Produkt.
+- PREISVERGLEICH bei Stückzahlen vs. Netze/Beutel: Wenn z.B. 4 Zwiebeln benötigt werden, rechne um!
+  Ein Zwiebelnetz 1kg enthält ca. 6-8 Zwiebeln (1 Zwiebel ≈ 120-150g), ein Kartoffelnetz 2kg ca. 12-15 Kartoffeln (1 Kartoffel ≈ 130-170g), etc.
+  Vergleiche: Ist 1× Netz günstiger als 4× Einzelzwiebel? Dann wähle das Netz mit quantity=1.
+  Typische Stückgewichte: Zwiebel ≈ 120g, Kartoffel ≈ 150g, Tomate ≈ 130g, Paprika ≈ 170g, Apfel ≈ 180g, Zitrone ≈ 100g, Orange ≈ 200g, Karotte ≈ 80g, Knoblauch ≈ 40g
+- Bevorzuge größere Packungen wenn günstiger pro Einheit
+- Bei Gewichtsangaben (z.B. 500g Kartoffeln): Netz/Sack bevorzugen wenn verfügbar
+- Bevorzuge unverarbeitete Varianten: frisch > tiefgekühlt > Konserve (es sei denn explizit anders gewünscht)`;
+
+/**
+ * KI-Produktauswahl aus einer Produktliste (Einzelmodus).
+ * Gibt zurück:
+ *   - Match-Objekt mit { product, ... } bei Treffer
+ *   - { alternativeSearch: "..." } wenn kein passendes Produkt (KI schlägt Alternativsuche vor)
+ *   - undefined wenn KI kein auswertbares Ergebnis liefert
+ */
+async function aiMatchProducts(ai, ingredientName, neededAmount, unit, withPrice, { forceMatch = false } = {}) {
+  const productList = prepareProductList(withPrice);
+
+  const noMatchBlock = forceMatch
+    ? `\nWICHTIG: Du MUSST eines der Produkte wählen – "noMatch" ist KEINE Option. Dies ist bereits eine Alternativsuche. Wähle das am besten passende Produkt.`
+    : `\nKein passendes Produkt (ALLE sind in der falschen Kategorie):\n{\n  "noMatch": true,\n  "alternativeSearch": "breiterer Suchbegriff",\n  "reason": "Warum keines passt"\n}`;
+
+  const prompt = `Wähle das beste REWE-Produkt für diese Zutat:
+
+Benötigt: ${neededAmount || '?'} ${unit || 'Stück'} ${ingredientName}
+
+Verfügbare Produkte:
+${JSON.stringify(productList, null, 2)}
+
+Antworte als JSON:
+
+Treffer:
+{
+  "index": 0,
+  "quantity": 1,
+  "reason": "Kurze Begründung"
+}
+${noMatchBlock}
+
+${AI_MATCH_RULES}`;
+
+  const aiResult = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 256 });
+
+  return processAiMatchResult(aiResult, ingredientName, neededAmount, unit, withPrice);
 }
 
 /**
@@ -666,30 +680,119 @@ function formatPrice(priceCents) {
  * @param {Map} [options.preferences] - Map<ingredientName, { rewe_product_id, rewe_product_name, rewe_price, rewe_package_size }>
  * @param {function} [options.onPriceUpdate] - Callback wenn sich ein Preis geändert hat: (productId, ingredientName, newPrice, packageSize)
  */
+/**
+ * KI-Batch-Produktauswahl für mehrere Zutaten gleichzeitig.
+ * Reduziert die Anzahl der KI-Aufrufe drastisch (1 Call pro Batch statt pro Item).
+ *
+ * @param {object} ai - AI-Provider-Instanz
+ * @param {Array<{ ingredientName, neededAmount, unit, products }>} items - Zutaten mit ihren REWE-Suchergebnissen
+ * @returns {Promise<Array<object|undefined>>} - Array von Match-Ergebnissen (gleiche Reihenfolge wie Eingabe)
+ */
+async function aiBatchMatchProducts(ai, items) {
+  if (items.length === 0) return [];
+  if (items.length === 1) {
+    // Einzelnes Item → Einzelmodus (vermeidet Batch-Overhead)
+    const item = items[0];
+    const result = await aiMatchProducts(ai, item.ingredientName, item.neededAmount, item.unit, item.products);
+    return [result];
+  }
+
+  // Batch-Prompt aufbauen: Jede Zutat mit eigenem Produktkatalog
+  const sections = items.map((item, idx) => {
+    const productList = prepareProductList(item.products);
+    return `## Zutat ${idx + 1}: ${item.neededAmount || '?'} ${item.unit || 'Stück'} ${item.ingredientName}
+Produkte:
+${JSON.stringify(productList, null, 2)}`;
+  });
+
+  const prompt = `Wähle für JEDE der folgenden ${items.length} Zutaten das beste REWE-Produkt.
+
+${sections.join('\n\n')}
+
+Antworte als JSON-Array mit GENAU ${items.length} Einträgen (einer pro Zutat, in gleicher Reihenfolge):
+
+[
+  { "ingredientIndex": 1, "index": 0, "quantity": 1, "reason": "Kurze Begründung" },
+  { "ingredientIndex": 2, "noMatch": true, "alternativeSearch": "breiterer Suchbegriff", "reason": "Warum keines passt" }
+]
+
+Für jede Zutat entweder:
+- Treffer: { "ingredientIndex": N, "index": Produktindex, "quantity": Packungszahl, "reason": "..." }
+- Kein Treffer: { "ingredientIndex": N, "noMatch": true, "alternativeSearch": "...", "reason": "..." }
+
+${AI_MATCH_RULES}`;
+
+  try {
+    const aiResults = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 256 * items.length });
+
+    if (!Array.isArray(aiResults)) {
+      console.warn('⚠️ KI-Batch-Matching: Unerwartetes Format (kein Array), nutze Einzelmodus');
+      return items.map(() => undefined);
+    }
+
+    // Ergebnisse den Items zuordnen (nach ingredientIndex oder Position)
+    const results = new Array(items.length).fill(undefined);
+    for (let i = 0; i < aiResults.length && i < items.length; i++) {
+      const aiResult = aiResults[i];
+      // ingredientIndex ist 1-basiert, Fallback auf Position
+      const idx = (aiResult?.ingredientIndex ? aiResult.ingredientIndex - 1 : i);
+      if (idx >= 0 && idx < items.length) {
+        results[idx] = processAiMatchResult(aiResult, items[idx].ingredientName, items[idx].neededAmount, items[idx].unit, items[idx].products);
+      }
+    }
+
+    return results;
+  } catch (err) {
+    console.warn('⚠️ KI-Batch-Matching fehlgeschlagen, nutze Einzelmodus:', err.message);
+    // Fallback: Alle als undefined → werden dann einzeln oder per Fallback behandelt
+    return items.map(() => undefined);
+  }
+}
+
+/**
+ * Matcht eine komplette Einkaufsliste mit REWE-Produkten
+ * Für jede Zutat wird das passendste Produkt + Direktlink gesucht
+ *
+ * Nutzt KI-Batch-Matching: Statt N einzelner KI-Aufrufe werden Items in Gruppen
+ * von bis zu 5 gebatcht (1 KI-Call pro Gruppe). Alternativsuchen (noMatch)
+ * werden weiterhin einzeln behandelt.
+ *
+ * Rate-Limiting: 500ms Pause zwischen Anfragen, 2s Pause alle 10 Anfragen
+ *
+ * @param {object[]} shoppingItems - Array mit { name, amount, unit }
+ * @param {function} [onProgress] - Optionaler Callback: (progress) => void
+ *   progress: { current, total, itemName, matched, productName, price }
+ * @param {object} [options] - Optionale Einstellungen
+ * @param {Map} [options.preferences] - Map<ingredientName, { rewe_product_id, rewe_product_name, rewe_price, rewe_package_size }>
+ * @param {function} [options.onPriceUpdate] - Callback wenn sich ein Preis geändert hat: (productId, ingredientName, newPrice, packageSize)
+ */
 export async function matchShoppingListWithRewe(shoppingItems, onProgress, options = {}) {
   const { preferences, onPriceUpdate, marketId } = options;
-  const results = [];
-  const BATCH_SIZE = 10;
-  const DELAY_BETWEEN = 500;       // ms zwischen einzelnen Anfragen
-  const DELAY_BETWEEN_BATCHES = 2000; // ms zwischen Batches
+  const results = new Array(shoppingItems.length).fill(null);
+  const REWE_BATCH_SIZE = 10;
+  const AI_BATCH_SIZE = 5;
+  const DELAY_BETWEEN = 500;
+  const DELAY_BETWEEN_BATCHES = 2000;
   let matchedCount = 0;
 
   console.log(`REWE-Matching: ${shoppingItems.length} Zutaten…`);
+
+  // ── Phase 1: REWE-Suchen + Präferenz-Handling ──
+  // Sammelt Items die KI-Matching brauchen für Phase 2
+
+  const needsAI = []; // { originalIndex, item, products }
 
   for (let i = 0; i < shoppingItems.length; i++) {
     const item = shoppingItems[i];
     let match = null;
     let fromPreference = false;
 
-    // 1. Gespeicherte Präferenz prüfen → gezielt nach dem Produkt suchen
+    // 1. Gespeicherte Präferenz prüfen
     const pref = preferences?.get(item.name.toLowerCase().trim());
     if (pref) {
-      // Trotzdem API abfragen um aktuellen Preis / Verfügbarkeit zu prüfen
       const { products } = await searchProducts(item.name, { marketId });
       let found = products.find(p => p.id === pref.rewe_product_id);
 
-      // Fallback: Wenn Zutatennamen-Suche das Produkt nicht findet (z.B. "Weizenwraps (Dürüm)")
-      // → Suche nach dem gespeicherten Produktnamen (z.B. "Mission Original Wraps 6 Stück")
       if (!found && pref.rewe_product_name) {
         console.log(`  🔄 ${item.name}: Nicht per Zutatname gefunden → suche per Produktname "${pref.rewe_product_name}"…`);
         await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN));
@@ -698,7 +801,6 @@ export async function matchShoppingListWithRewe(shoppingItems, onProgress, optio
       }
 
       if (found) {
-        // Gemerktes Produkt ist noch verfügbar → mit aktuellem Preis verwenden
         const packagesNeeded = calculatePackagesNeeded(item.amount, item.unit, found.parsedAmount, found.parsedUnit, found.parsedPieceCount);
         match = {
           product: found,
@@ -712,7 +814,6 @@ export async function matchShoppingListWithRewe(shoppingItems, onProgress, optio
         fromPreference = true;
         matchedCount++;
 
-        // Preis in Präferenz-Tabelle aktualisieren (falls sich etwas geändert hat)
         if (found.price !== pref.rewe_price && onPriceUpdate) {
           onPriceUpdate(pref.rewe_product_id, item.name, found.price, found.packageSize);
         }
@@ -723,61 +824,157 @@ export async function matchShoppingListWithRewe(shoppingItems, onProgress, optio
         const qtyInfo = packagesNeeded > 1 ? ` [${packagesNeeded}×]` : '';
         console.log(`  ★ ${item.name} → ${found.name} (gemerkt${priceChange})${qtyInfo}`);
       } else {
-        // Produkt nicht mehr verfügbar → Fallback auf normales Scoring
+        // Produkt nicht mehr verfügbar → zur KI-Batch-Queue hinzufügen
         console.log(`  ⚠ ${item.name}: Gemerktes Produkt "${pref.rewe_product_name}" nicht mehr verfügbar → suche Alternative…`);
-        match = await findBestProduct(item.name, item.amount, item.unit, { marketId });
-        if (match) {
-          matchedCount++;
-          const qtyInfo = match.packagesNeeded > 1 ? ` [${match.packagesNeeded}×]` : '';
-          console.log(`  ✓ ${item.name} → ${match.product.name} (${match.product.priceFormatted || '?'}) [Ersatz]${qtyInfo}`);
-        } else {
-          console.log(`  ✗ ${item.name} → kein Treffer`);
+        const { products: searchResults } = await searchProducts(item.name, { marketId });
+        const withPrice = searchResults.filter(p => p.price);
+        if (withPrice.length > 0) {
+          needsAI.push({ originalIndex: i, item, products: withPrice });
         }
+        // match bleibt null → wird ggf. in Phase 2 gesetzt
       }
     } else {
-      // 2. Kein gespeichertes Produkt → REWE API abfragen
-      match = await findBestProduct(item.name, item.amount, item.unit, { marketId });
-
-      if (match) {
-        matchedCount++;
-        const qtyInfo = match.packagesNeeded > 1 ? ` [${match.packagesNeeded}×]` : '';
-        const methodTag = match.matchedBy === 'ai' ? '🤖' : '📊';
-        console.log(`  ${methodTag} ${item.name} → ${match.product.name} (${match.product.priceFormatted || '?'})${qtyInfo}`);
+      // 2. Kein gespeichertes Produkt → REWE-Suche, KI-Matching wird gebatcht
+      const { products } = await searchProducts(item.name, { marketId });
+      const withPrice = products.filter(p => p.price);
+      if (withPrice.length > 0) {
+        needsAI.push({ originalIndex: i, item, products: withPrice });
       } else {
-        console.log(`  ✗ ${item.name} → kein Treffer`);
+        console.log(`  ✗ ${item.name} → kein Treffer (keine Produkte gefunden)`);
       }
     }
 
-    results.push({
-      ...item,
-      reweMatch: match,
-    });
+    // Ergebnis zwischenspeichern (Präferenz-Treffer sofort, Rest in Phase 2)
+    if (match) {
+      results[i] = { ...item, reweMatch: match };
+    }
 
-    // Fortschritt melden
-    if (onProgress) {
+    // Fortschritt für Präferenz-Treffer sofort melden
+    if (match && onProgress) {
       onProgress({
         current: i + 1,
         total: shoppingItems.length,
         itemName: item.name,
-        matched: !!match,
+        matched: true,
         matchedCount,
-        productName: match?.product?.name || null,
-        price: match?.product?.priceFormatted || null,
-        packagesNeeded: match?.packagesNeeded || null,
+        productName: match.product?.name || null,
+        price: match.product?.priceFormatted || null,
+        packagesNeeded: match.packagesNeeded || null,
         fromPreference,
-        matchedBy: match?.matchedBy || null,
+        matchedBy: match.matchedBy || null,
       });
     }
 
-    // Rate-Limiting: Pause zwischen Anfragen
+    // Rate-Limiting für REWE-API
     if (i < shoppingItems.length - 1) {
-      // Größere Pause nach jedem Batch
-      if ((i + 1) % BATCH_SIZE === 0) {
+      if ((i + 1) % REWE_BATCH_SIZE === 0) {
         console.log(`  ⏳ Batch-Pause (${DELAY_BETWEEN_BATCHES}ms)…`);
         await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
       } else {
         await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN));
       }
+    }
+  }
+
+  // ── Phase 2: Batch-KI-Matching für alle Items ohne Präferenz ──
+
+  if (needsAI.length > 0) {
+    console.log(`  🤖 KI-Batch-Matching: ${needsAI.length} Zutaten in ${Math.ceil(needsAI.length / AI_BATCH_SIZE)} Batch(es)…`);
+
+    const ai = getAIProvider({ simple: true });
+
+    for (let b = 0; b < needsAI.length; b += AI_BATCH_SIZE) {
+      const batch = needsAI.slice(b, b + AI_BATCH_SIZE);
+      const batchInput = batch.map(entry => ({
+        ingredientName: entry.item.name,
+        neededAmount: entry.item.amount,
+        unit: entry.item.unit,
+        products: entry.products,
+      }));
+
+      const batchResults = await aiBatchMatchProducts(ai, batchInput);
+
+      // Ergebnisse verarbeiten
+      for (let j = 0; j < batch.length; j++) {
+        const { originalIndex, item } = batch[j];
+        const aiResult = batchResults[j];
+        let match = null;
+        let searchQuery = item.name;
+
+        if (aiResult?.product) {
+          // KI hat Produkt gewählt
+          match = { ...aiResult, searchQuery };
+          matchedCount++;
+          const qtyInfo = match.packagesNeeded > 1 ? ` [${match.packagesNeeded}×]` : '';
+          console.log(`  🤖 ${item.name} → ${match.product.name} (${match.product.priceFormatted || '?'})${qtyInfo}`);
+        } else if (aiResult?.alternativeSearch) {
+          // noMatch → Alternativsuche (individuell, mit eigener REWE-Suche + forceMatch)
+          const altQuery = aiResult.alternativeSearch;
+          console.log(`  🔄 ${item.name}: Kein passendes Produkt → Alternativsuche "${altQuery}"…`);
+          await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN));
+          const { products: altProducts } = await searchProducts(altQuery, { marketId });
+          const altWithPrice = altProducts.filter(p => p.price);
+          if (altWithPrice.length) {
+            searchQuery = altQuery;
+            try {
+              const altResult = await aiMatchProducts(ai, item.name, item.amount, item.unit, altWithPrice, { forceMatch: true });
+              if (altResult?.product) {
+                match = { ...altResult, searchQuery };
+                matchedCount++;
+                const qtyInfo = match.packagesNeeded > 1 ? ` [${match.packagesNeeded}×]` : '';
+                console.log(`  🤖 ${item.name} → ${match.product.name} (${match.product.priceFormatted || '?'}) [Alt: "${altQuery}"]${qtyInfo}`);
+              }
+            } catch (retryErr) {
+              console.warn(`  ⚠️ Alternativsuche KI-Matching für "${item.name}" fehlgeschlagen:`, retryErr.message);
+            }
+          }
+          // Falls KI-Retry fehlschlägt → regelbasierter Fallback
+          if (!match) {
+            const fallbackProducts = altWithPrice.length ? altWithPrice : batch[j].products;
+            const fallback = findBestProductFallback(item.name, item.amount, item.unit, fallbackProducts);
+            if (fallback) {
+              match = { ...fallback, searchQuery };
+              matchedCount++;
+              console.log(`  📊 ${item.name} → ${match.product.name} (${match.product.priceFormatted || '?'}) [Fallback]`);
+            }
+          }
+        } else {
+          // KI hat kein auswertbares Ergebnis → regelbasierter Fallback
+          const fallback = findBestProductFallback(item.name, item.amount, item.unit, batch[j].products);
+          if (fallback) {
+            match = { ...fallback, searchQuery };
+            matchedCount++;
+            console.log(`  📊 ${item.name} → ${match.product.name} (${match.product.priceFormatted || '?'}) [Fallback]`);
+          } else {
+            console.log(`  ✗ ${item.name} → kein Treffer`);
+          }
+        }
+
+        results[originalIndex] = { ...item, reweMatch: match };
+
+        // Fortschritt melden
+        if (onProgress) {
+          onProgress({
+            current: originalIndex + 1,
+            total: shoppingItems.length,
+            itemName: item.name,
+            matched: !!match,
+            matchedCount,
+            productName: match?.product?.name || null,
+            price: match?.product?.priceFormatted || null,
+            packagesNeeded: match?.packagesNeeded || null,
+            fromPreference: false,
+            matchedBy: match?.matchedBy || null,
+          });
+        }
+      }
+    }
+  }
+
+  // Nicht-gematchte Items auffüllen (falls results[i] noch null)
+  for (let i = 0; i < shoppingItems.length; i++) {
+    if (!results[i]) {
+      results[i] = { ...shoppingItems[i], reweMatch: null };
     }
   }
 

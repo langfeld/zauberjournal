@@ -38,7 +38,8 @@ zauberjournal/
 │       │   ├── admin.js        # Admin: Stats, Users, Settings, Logs, Export
 │       │   ├── households.js   # Haushalt CRUD, Einladungen, Migration
 │       │   ├── household-events.js # SSE-Stream für Echtzeit-Sync
-│       │   └── shared-recipes.js # Öffentliche Rezept-Links (kein Auth)
+│       │   ├── shared-recipes.js # Öffentliche Rezept-Links (kein Auth)
+│       │   └── user-settings.js # Benutzer-Einstellungen CRUD
 │       ├── services/
 │       │   ├── ai/
 │       │   │   ├── base.js     # BaseAIProvider (Chat, JSON-Parse, Bild)
@@ -48,13 +49,17 @@ zauberjournal/
 │       │   │   ├── ollama.js   # Ollama Provider (lokal)
 │       │   │   └── provider.js # Provider-Factory
 │       │   ├── meal-planner.js # Wochenplan-Algorithmus
+│       │   ├── pantry-allocation.js # Vorratsabgleich für Einkaufsliste
+│       │   ├── pantry-deduction-ai.js # KI-Vorratsabzug beim Kochen
+│       │   ├── pantry-transfer-ai.js # KI-Vorrats-Transfer aus Einkaufsliste
 │       │   ├── recipe-parser.js # Multi-Bild-Rezeptanalyse
-│       │   ├── rewe-api.js     # REWE API-Client
-│       │   ├── shopping-list.js # Einkaufslisten-Service
-│       │   └── pantry-allocation.js # Vorratsabgleich für Einkaufsliste
+│       │   ├── rewe-api.js     # REWE API-Client + Batch-Matching
+│       │   ├── shopping-list.js # Einkaufslisten-Service + Heuristik-Dedup
+│       │   └── shopping-review.js # KI-Einkaufslisten-Review (Qualitätsprüfung)
 │       └── utils/
+│           ├── errors.js       # Fehlerbehandlung
 │           ├── helpers.js      # normalizeUnit, Konvertierungen
-│           └── errors.js       # Fehlerbehandlung
+│           └── ingredient-weights.js # Gewichtstabelle (Stück→g, Subunit-Konvertierung)
 │
 ├── frontend/
 │   ├── package.json
@@ -85,19 +90,34 @@ zauberjournal/
 │       │   ├── UserDataManagementView.vue  # Meine Daten
 │       │   ├── HouseholdView.vue
 │       │   ├── SharedRecipeView.vue
-│       │   └── admin/          # Admin-Dashboard, Users, Settings, Icons, Data
+│       │   └── admin/
+│       │       ├── AdminDashboardView.vue  # Admin-Übersicht & Statistiken
+│       │       ├── AdminDataManagementView.vue # Datenmanagement & Export
+│       │       ├── AdminIngredientIconsView.vue # Zutaten-Emoji-Verwaltung
+│       │       ├── AdminSettingsView.vue   # Admin-Einstellungen & KI-Konfiguration
+│       │       └── AdminUsersView.vue      # Benutzerverwaltung
 │       ├── stores/             # Pinia Stores (mit Offline-Persistenz)
+│       │   ├── auth.js              # Auth-Store (Login, Token, User)
+│       │   ├── collections.js       # Sammlungen-Store
 │       │   ├── household.js         # Haushalt-Store mit SSE-Management
+│       │   ├── ingredient-aliases.js # Zutaten-Alias-Store
+│       │   ├── mealplan.js          # Wochenplan-Store
+│       │   ├── pantry.js            # Vorratsschrank-Store
+│       │   ├── recipe-blocks.js     # Rezept-Sperren-Store
+│       │   ├── recipes.js           # Rezepte-Store
+│       │   └── shopping.js          # Einkaufslisten-Store
 │       ├── services/
 │       │   ├── offlineQueue.js  # IndexedDB-basierte Action-Queue (idb-keyval)
 │       │   ├── syncManager.js   # Queue-Abarbeitung bei Netzwerkrückkehr
 │       │   └── syncHandlers.js  # Handler für jeden offline-fähigen Action-Typ
 │       ├── composables/
 │       │   ├── useApi.js        # API-Client (apiFetch + Convenience-Methoden)
+│       │   ├── useAppUpdate.js  # PWA Service-Worker-Update-Flow
+│       │   ├── useIngredientIcons.js # Zutaten-Emoji-Caching
+│       │   ├── useInstallPrompt.js # PWA-Installationsdialog
 │       │   ├── useNetworkStatus.js # Reaktiver Online/Offline-Status
 │       │   ├── useNotification.js # Toast-Benachrichtigungen
 │       │   ├── useTheme.js      # Dark-Mode-Verwaltung
-│       │   ├── useIngredientIcons.js # Zutaten-Emoji-Caching
 │       │   └── useWakeLock.js   # Wake Lock für Kochmodus
 │       └── router/index.js
 │
