@@ -2,16 +2,7 @@
  * ============================================
  * Rezept-Routen (CRUD + AI-Import)
  * ============================================
- * Vollständige CRUD-Operationen für       if (category_ids?.length) {
-        const insertCat = db.prepare(
-          'INSERT OR IGNORE INTO recipe_categories (recipe_id, category_id) VALUES (?, ?)'
-        );
-        for (const catId of category_ids) {
-          insertCat.run(recipeId, catId);
-        }
-      }
-
-      // Zutaten einfügenkl.
+ * Vollständige CRUD-Operationen inkl.
  * Foto-Import, Favoriten und Kochhistorie.
  */
 
@@ -412,7 +403,7 @@ export default async function recipesRoutes(fastify) {
         const insertCat = db.prepare(
           'INSERT OR IGNORE INTO recipe_categories (recipe_id, category_id) VALUES (?, ?)'
         );
-        for (const catId of categoryIds) {
+        for (const catId of category_ids) {
           insertCat.run(recipeId, catId);
         }
       }

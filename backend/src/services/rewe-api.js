@@ -723,7 +723,17 @@ Für jede Zutat entweder:
 ${AI_MATCH_RULES}`;
 
   try {
-    const aiResults = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 256 * items.length });
+    let aiResults = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 256 * items.length });
+
+    // Robuster Array-Extraktor: KI antwortet manchmal mit { results: [...] } o.ä.
+    if (!Array.isArray(aiResults) && aiResults && typeof aiResults === 'object') {
+      // Suche nach dem ersten Array-Feld im Objekt
+      const arrayField = Object.values(aiResults).find(v => Array.isArray(v));
+      if (arrayField) {
+        console.log('  ℹ️ KI-Batch: Array aus Wrapper-Objekt extrahiert');
+        aiResults = arrayField;
+      }
+    }
 
     if (!Array.isArray(aiResults)) {
       console.warn('⚠️ KI-Batch-Matching: Unerwartetes Format (kein Array), nutze Einzelmodus');
