@@ -490,19 +490,22 @@ export default async function mealplanRoutes(fastify) {
           day_of_week: { type: 'integer', minimum: 0, maximum: 6 },
           meal_type: { type: 'string', enum: ['fruehstueck', 'mittag', 'abendessen', 'snack'] },
           week_start: { type: 'string', format: 'date' },
-          servings: { type: 'integer', minimum: 1, default: 4 },
+          servings: { type: 'integer', minimum: 1 },
         },
       },
     },
   }, async (request, reply) => {
-    const { recipe_id, day_of_week, meal_type, week_start, servings = 4 } = request.body;
+    const { recipe_id, day_of_week, meal_type, week_start, servings: requestedServings } = request.body;
     const userId = request.user.id;
     const householdId = request.householdId;
     const hhWhere = householdWhereClause(userId, householdId, 'r');
 
     // Rezept prüfen (muss dem User/Haushalt gehören)
-    const recipe = db.prepare(`SELECT r.id, r.title FROM recipes r WHERE r.id = ? AND (${hhWhere.clause})`).get(recipe_id, ...hhWhere.params);
+    const recipe = db.prepare(`SELECT r.id, r.title, r.servings FROM recipes r WHERE r.id = ? AND (${hhWhere.clause})`).get(recipe_id, ...hhWhere.params);
     if (!recipe) return reply.status(404).send({ error: 'Rezept nicht gefunden' });
+
+    // Portionen: Explizit übergeben → nutzen, sonst Standard-Portionen des Rezepts
+    const servings = requestedServings || recipe.servings || 4;
 
     // Plan für die Woche suchen oder erstellen
     const mpWhere = householdWhereClause(userId, householdId, 'mp');
@@ -602,12 +605,12 @@ export default async function mealplanRoutes(fastify) {
           recipe_id: { type: 'integer' },
           day_of_week: { type: 'integer', minimum: 0, maximum: 6 },
           meal_type: { type: 'string', enum: ['fruehstueck', 'mittag', 'abendessen', 'snack'] },
-          servings: { type: 'integer', minimum: 1, default: 4 },
+          servings: { type: 'integer', minimum: 1 },
         },
       },
     },
   }, async (request, reply) => {
-    const { recipe_id, day_of_week, meal_type, servings = 4 } = request.body;
+    const { recipe_id, day_of_week, meal_type, servings: requestedServings } = request.body;
     const { planId } = request.params;
     const userId = request.user.id;
     const householdId = request.householdId;
@@ -617,8 +620,11 @@ export default async function mealplanRoutes(fastify) {
     if (!plan) return reply.status(404).send({ error: 'Plan nicht gefunden' });
 
     // Rezept-Ownership prüfen
-    const recipe = db.prepare(`SELECT id FROM recipes WHERE id = ? AND (${hhWhere.clause})`).get(recipe_id, ...hhWhere.params);
+    const recipe = db.prepare(`SELECT id, servings FROM recipes WHERE id = ? AND (${hhWhere.clause})`).get(recipe_id, ...hhWhere.params);
     if (!recipe) return reply.status(404).send({ error: 'Rezept nicht gefunden' });
+
+    // Portionen: Explizit übergeben → nutzen, sonst Standard-Portionen des Rezepts
+    const servings = requestedServings || recipe.servings || 4;
 
     // Prüfen ob Slot schon belegt ist
     const existing = db.prepare(

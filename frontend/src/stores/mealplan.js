@@ -248,7 +248,7 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Neuen Eintrag in einem leeren Slot hinzufügen */
-  async function addEntry(planId, recipeId, dayOfWeek, mealType, servings = 4) {
+  async function addEntry(planId, recipeId, dayOfWeek, mealType, servings) {
     const data = await api.post(`/mealplan/${planId}/entry`, {
       recipe_id: recipeId,
       day_of_week: dayOfWeek,
@@ -262,7 +262,7 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Rezept manuell zum Wochenplan hinzufügen (erstellt Plan automatisch) */
-  async function addRecipeToPlan(recipeId, dayOfWeek, mealType, weekStart, servings = 4) {
+  async function addRecipeToPlan(recipeId, dayOfWeek, mealType, weekStart, servings) {
     const data = await api.post('/mealplan/add-recipe', {
       recipe_id: recipeId,
       day_of_week: dayOfWeek,
