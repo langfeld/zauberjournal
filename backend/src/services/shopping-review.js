@@ -137,19 +137,27 @@ export async function reviewShoppingList(userId, householdId, listId) {
     return aliasLookup.get(name.toLowerCase()) || name;
   }
 
-  const shoppingContext = listItems.map(item => ({
-    id: item.id,
-    name: item.ingredient_name,
-    amount: item.amount,
-    unit: item.unit || '',
-    rewe_product: item.rewe_product_id ? {
-      name: item.rewe_product_name,
-      package_size: item.rewe_package_size,
-      matched_by: item.rewe_matched_by,
-    } : null,
-    source: item.source || 'recipe',
-    pantry_deducted: item.pantry_deducted || 0,
-  }));
+  const shoppingContext = listItems.map(item => {
+    // recipe_ids aus JSON-Spalte parsen (enthält IDs aller Rezepte die zu diesem Item beigetragen haben)
+    let recipeIds = [];
+    try {
+      recipeIds = item.recipe_ids ? JSON.parse(item.recipe_ids) : [];
+    } catch { /* ignore parse errors */ }
+    return {
+      id: item.id,
+      name: item.ingredient_name,
+      amount: item.amount,
+      unit: item.unit || '',
+      recipe_ids: recipeIds,
+      rewe_product: item.rewe_product_id ? {
+        name: item.rewe_product_name,
+        package_size: item.rewe_package_size,
+        matched_by: item.rewe_matched_by,
+      } : null,
+      source: item.source || 'recipe',
+      pantry_deducted: item.pantry_deducted || 0,
+    };
+  });
 
   const pantryContext = pantryItems.map(p => ({
     name: p.ingredient_name,
@@ -179,6 +187,36 @@ export async function reviewShoppingList(userId, householdId, listId) {
   const aliasContext = aliasRows.map(a => `${a.alias_name} → ${a.canonical_name}`);
   const blockedContext = blockedRows.map(b => b.ingredient_name);
 
+  // --- Vorberechnung: Zutaten die NICHT auf der Einkaufsliste stehen, weil der Vorrat sie abdeckt ---
+  const shoppingNamesLower = new Set(listItems.map(li => resolveAlias(li.ingredient_name).toLowerCase()));
+  const pantryCoveredItems = [];
+  const seenPantryCovered = new Set();
+  for (const recipe of recipesWithIngredients) {
+    for (const ing of recipe.ingredients) {
+      if (ing.is_optional) continue;
+      const canonical = resolveAlias(ing.name).toLowerCase();
+      if (blockedContext.some(b => b.toLowerCase() === canonical)) continue;
+      if (shoppingNamesLower.has(canonical)) continue; // Ist auf der Einkaufsliste
+      // Prüfen ob Vorrat diese Zutat hat
+      const inPantry = pantryItems.some(p => {
+        const pantryCanonical = resolveAlias(p.ingredient_name).toLowerCase();
+        return pantryCanonical === canonical && (p.amount > 0 || p.is_permanent);
+      });
+      if (inPantry) {
+        const key = `${canonical}::${recipe.id}`;
+        if (!seenPantryCovered.has(key)) {
+          seenPantryCovered.add(key);
+          pantryCoveredItems.push({
+            ingredient: ing.name,
+            recipe: recipe.title,
+            recipe_id: recipe.id,
+            reason: 'Vorrat deckt den Bedarf vollständig ab – daher nicht auf der Einkaufsliste',
+          });
+        }
+      }
+    }
+  }
+
   // Prüfen ob REWE-Abgleich durchgeführt wurde (mindestens ein Item hat rewe_product_id)
   const hasReweMatching = listItems.some(i => i.rewe_product_id);
 
@@ -189,12 +227,17 @@ export async function reviewShoppingList(userId, householdId, listId) {
 
 ## Einkaufsliste
 ${JSON.stringify(shoppingContext, null, 2)}
+HINWEIS: Das Feld "recipe_ids" zeigt welche Rezepte zu diesem Einkaufslisteneintrag beigetragen haben. Wenn mehrere recipe_ids vorhanden sind, ist die Menge die SUMME aus mehreren Rezepten – das ist KEIN Fehler!
 
 ## Vorratsschrank (aktueller Bestand)
 ${JSON.stringify(pantryContext, null, 2)}
 
 ## Rezepte aus dem Wochenplan (für die diese Einkaufsliste generiert wurde)
 ${JSON.stringify(recipesContext, null, 2)}
+
+## Durch Vorrat abgedeckte Zutaten (NICHT auf der Einkaufsliste, weil Vorrat ausreicht)
+${pantryCoveredItems.length > 0 ? JSON.stringify(pantryCoveredItems, null, 2) : 'Keine'}
+Diese Zutaten wurden beim Erstellen der Einkaufsliste bereits geprüft und vom Vorrat abgedeckt. Sie fehlen NICHT – sie werden bewusst nicht eingekauft. Melde diese NIEMALS als missing_ingredient!
 
 ## Zutaten-Aliase (bekannte Zusammenfassungen)
 ${aliasContext.length > 0 ? aliasContext.join('\n') : 'Keine'}
@@ -218,7 +261,12 @@ Melde eine Zutat NIEMALS als fehlend wenn sie unter einem anderen (aber semantis
 
 Prüfe die Einkaufsliste auf folgende Probleme und antworte als JSON:
 
-1. **missing_ingredient**: Zutaten die in den Rezepten vorkommen, aber NICHT in der Einkaufsliste UND NICHT im Vorratsschrank sind (und nicht geblockt/optional). Nutze die semantische Zutatenerkennung (siehe oben) – prüfe ob die Zutat unter einem anderen Namen bereits vorhanden ist, bevor du sie als fehlend meldest. Gib die fehlende Zutat mit Menge und Rezeptname an.
+1. **missing_ingredient**: Zutaten die in den Rezepten vorkommen, aber NICHT in der Einkaufsliste UND NICHT im Vorratsschrank UND NICHT in der Liste "Durch Vorrat abgedeckte Zutaten" sind (und nicht geblockt/optional). Nutze die semantische Zutatenerkennung (siehe oben) – prüfe ob die Zutat unter einem anderen Namen bereits vorhanden ist, bevor du sie als fehlend meldest. Gib die fehlende Zutat mit Menge und Rezeptname an.
+   KRITISCH: Prüfe VOR dem Melden einer fehlenden Zutat IMMER:
+   a) Steht sie (ggf. unter anderem Namen) auf der Einkaufsliste?
+   b) Steht sie in der Liste "Durch Vorrat abgedeckte Zutaten"?
+   c) Hat der Vorratsschrank genug davon?
+   Wenn EINE dieser Bedingungen zutrifft, ist die Zutat NICHT fehlend!
 
 2. **quantity_logic**: Mengen-Logik-Fehler. Typisches Beispiel: Im Rezept steht "4 Tortillas" (= 4 Stück einzeln), aber in der Einkaufsliste steht "4" ohne Kontext → das könnte als "4 Packungen" interpretiert werden. Prüfe ob Stückzahlen als Verpackungseinheiten fehlinterpretiert werden könnten. Berücksichtige besonders Produkte die typischerweise in Mehrstück-Packungen verkauft werden (Tortillas, Burger-Buns, Aufbackbrötchen etc.).
 
@@ -229,6 +277,7 @@ Prüfe die Einkaufsliste auf folgende Probleme und antworte als JSON:
    Gib einen confidence-Wert (0.0-1.0) an wie sicher du bist.
 
 4. **plausibility**: Ungewöhnlich hohe oder niedrige Mengen die auf einen Fehler hindeuten (z.B. 500g Salz für ein Rezept, 0.01 kg Fleisch).
+   WICHTIG: Prüfe IMMER das Feld "recipe_ids" des Einkaufslisteneintrags! Wenn mehrere recipe_ids vorhanden sind, ist die Menge die SUMME aus diesen Rezepten. Teile die Gesamtmenge durch die Anzahl der Rezepte um die Menge pro Rezept zu berechnen. Melde KEINEN Plausibilitätsfehler wenn die Menge pro Rezept plausibel ist.
 
 5. **duplicate**: Zutaten die TATSÄCHLICH als ZWEI ODER MEHR separate Zeilen in der Einkaufsliste vorkommen und zusammengeführt werden sollten. Nutze die semantische Zutatenerkennung: "Zwiebel rot" und "Rote Zwiebel" als zwei Zeilen = Duplikat. "Tomate" und "Tomaten" als zwei Zeilen = Duplikat.
    KRITISCH: Wenn eine Zutat nur EINMAL in der Liste steht, ist sie KEIN Duplikat – auch wenn sie aus mehreren Rezepten stammt. Zähle die tatsächlichen Zeilen in der Einkaufsliste! Gib NIEMALS ein Issue für korrekt aggregierte Einzelzeilen aus.
