@@ -44,11 +44,12 @@ function getDeductionAI() {
 export async function aiPantryDeduction({
   userId, householdId, entryId, recipeId, recipeTitle,
   originalServings, plannedServings,
-}) {
+}, progress = null) {
   const errors = [];
   const deductions = [];
 
   // 1. Rezept-Zutaten laden (nicht-optional)
+  progress?.step(0); // Rezeptdaten laden
   const ingredients = db.prepare(
     'SELECT * FROM ingredients WHERE recipe_id = ? AND is_optional = 0'
   ).all(recipeId);
@@ -159,6 +160,7 @@ Antworte ausschließlich mit einem JSON-Objekt:
 - reasoning: Kurze Erklärung`;
 
   try {
+    progress?.step(1); // KI-Berechnung
     const ai = getDeductionAI();
     const result = await ai.chatJSON(prompt, {
       temperature: 0.1,
@@ -171,6 +173,7 @@ Antworte ausschließlich mit einem JSON-Objekt:
     }
 
     // 6. Ergebnis validieren und anwenden
+    progress?.step(2); // Vorräte aktualisieren
     const pantryMap = new Map(pantryItems.map(p => [p.id, p]));
 
     for (const d of result.deductions) {

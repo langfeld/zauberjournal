@@ -37,6 +37,29 @@ export function broadcastToHousehold(householdId, event, data, excludeUserId = n
 }
 
 /**
+ * Nachricht an einen bestimmten User im Haushalt senden.
+ * Wird z. B. für KI-Fortschrittsanzeigen genutzt, die nur den
+ * auslösenden User betreffen.
+ */
+export function sendToUser(householdId, userId, event, data) {
+  if (!householdId || !userId) return;
+  const clients = connections.get(householdId);
+  if (!clients || clients.size === 0) return;
+
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+
+  for (const client of clients) {
+    if (client.userId === userId) {
+      try {
+        client.reply.raw.write(payload);
+      } catch {
+        clients.delete(client);
+      }
+    }
+  }
+}
+
+/**
  * Anzahl aktiver Verbindungen für einen Haushalt.
  */
 export function getConnectionCount(householdId) {

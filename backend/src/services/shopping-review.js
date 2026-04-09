@@ -37,8 +37,9 @@ function getReviewAI() {
  * @param {number} listId - ID der Einkaufsliste
  * @returns {Promise<{ issues: Array, autoResolved: Array }>}
  */
-export async function reviewShoppingList(userId, householdId, listId) {
+export async function reviewShoppingList(userId, householdId, listId, progress = null) {
   // --- 1. Daten laden ---
+  progress?.step(0); // Daten laden
 
   // Einkaufslisten-Items
   const listItems = db.prepare(
@@ -125,6 +126,7 @@ export async function reviewShoppingList(userId, householdId, listId) {
   }
 
   // --- 2. Kontext für KI aufbauen ---
+  progress?.step(1); // Kontext aufbauen
 
   // Alias-Lookup aufbauen: alias_name (lowercase) → canonical_name, canonical_name (lowercase) → canonical_name
   const aliasLookup = new Map();
@@ -221,6 +223,7 @@ export async function reviewShoppingList(userId, householdId, listId) {
   const hasReweMatching = listItems.some(i => i.rewe_product_id);
 
   // --- 3. KI-Review aufrufen ---
+  progress?.step(2); // KI-Analyse
   const ai = getReviewAI();
 
   const prompt = `Du bist ein intelligenter Einkaufslisten-Prüfer für eine Koch-App. Analysiere die Einkaufsliste und finde Probleme.
@@ -353,6 +356,7 @@ Regeln:
     }
 
     // --- 4. Normalisierung & Auto-Resolve ---
+    progress?.step(3); // Ergebnisse verarbeiten
     const autoResolved = [];
     const manualIssues = [];
 

@@ -15,6 +15,7 @@ import { calculatePantryAllocations } from '../services/pantry-allocation.js';
 import { broadcastToHousehold } from './household-events.js';
 import { aiPantryTransfer } from '../services/pantry-transfer-ai.js';
 import { getSetting } from '../config/settings.js';
+import { createAIProgress } from '../utils/ai-progress.js';
 
 // In-Memory Map: householdId → Map<userId, { username, display_name, started_at }>
 const activeShoppers = new Map();
@@ -80,8 +81,21 @@ export default async function shoppingRoutes(fastify) {
       return reply.status(404).send({ error: 'Wochenplan nicht gefunden' });
     }
 
+    // Progress-Reporter aufsetzen
+    const progressSteps = [
+      'Wochenplan laden',
+      'Zutaten sammeln',
+      'KI-Aggregation',
+      'Vorräte abziehen',
+      'Liste speichern',
+    ];
+    if (autoReview) progressSteps.push('KI-Review');
+    const progress = createAIProgress(householdId, userId, 'shopping-generate', 'Einkaufsliste erstellen', progressSteps);
+    progress.start();
+
+    try {
     // Einkaufsliste generieren (mit Vorratsschrank-Abgleich + KI-Aggregation)
-    const shoppingData = await generateShoppingList(userId, householdId, mealPlanId, { excludePastDays, smartDedup });
+    const shoppingData = await generateShoppingList(userId, householdId, mealPlanId, { excludePastDays, smartDedup }, progress);
 
     // Aktive Liste ermitteln
     const slWhere = householdWhereClause(userId, householdId);
@@ -93,6 +107,7 @@ export default async function shoppingRoutes(fastify) {
 
     if (mode === 'append' && oldList) {
       // --- APPEND-Modus: Neue Artikel zur bestehenden Liste hinzufügen ---
+      progress.step(4); // Liste speichern
       listId = oldList.id;
 
       // Bestehende Items der aktiven Liste laden
@@ -143,6 +158,7 @@ export default async function shoppingRoutes(fastify) {
 
     } else {
       // --- REPLACE-Modus (Standard): Neue Liste erstellen ---
+      progress.step(4); // Liste speichern
       let manualItems = [];
       if (oldList) {
         manualItems = db.prepare(
@@ -180,11 +196,14 @@ export default async function shoppingRoutes(fastify) {
     let aiReview = null;
     if (autoReview) {
       try {
+        progress.step(5); // KI-Review
         aiReview = await reviewShoppingList(userId, householdId, listId);
       } catch (err) {
         console.warn('⚠️ Auto-KI-Review fehlgeschlagen:', err.message);
       }
     }
+
+    progress.complete();
 
     return {
       listId,
@@ -193,6 +212,10 @@ export default async function shoppingRoutes(fastify) {
       aiReview,
       message: mode === 'append' ? 'Artikel zur Einkaufsliste hinzugefügt!' : 'Einkaufsliste generiert!',
     };
+    } catch (err) {
+      progress.error(err.message);
+      throw err;
+    }
   });
 
   /**
@@ -785,6 +808,12 @@ export default async function shoppingRoutes(fastify) {
     let aiResult = null;
 
     if (aiEnabled) {
+      const progressTransfer = createAIProgress(householdId, request.user.id, 'pantry-transfer', 'In Vorrat übertragen', [
+        'Vorratsdaten laden',
+        'KI-Zuordnung',
+        'Transfer durchführen',
+      ]);
+      progressTransfer.start();
       try {
         aiResult = await aiPantryTransfer({
           userId,
@@ -792,8 +821,10 @@ export default async function shoppingRoutes(fastify) {
           ingredientName,
           amount,
           unit,
-        });
+        }, progressTransfer);
+        progressTransfer.complete();
       } catch (err) {
+        progressTransfer.error(err.message);
         console.error('⚠️ AI Pantry-Transfer Fehler, Fallback auf regelbasiert:', err.message);
         // Fallback auf regelbasierte Logik
         aiResult = null;
@@ -1470,8 +1501,21 @@ export default async function shoppingRoutes(fastify) {
       return reply.status(404).send({ error: 'Keine aktive Einkaufsliste gefunden' });
     }
 
-    const result = await reviewShoppingList(userId, householdId, list.id);
-    return result;
+    const progress = createAIProgress(householdId, userId, 'shopping-review', 'KI-Check', [
+      'Daten laden',
+      'Kontext aufbauen',
+      'KI-Analyse',
+      'Ergebnisse verarbeiten',
+    ]);
+    progress.start();
+    try {
+      const result = await reviewShoppingList(userId, householdId, list.id, progress);
+      progress.complete();
+      return result;
+    } catch (err) {
+      progress.error(err.message);
+      throw err;
+    }
   });
 
   // ─────────────────────────────────────────────

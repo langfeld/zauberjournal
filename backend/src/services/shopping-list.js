@@ -329,8 +329,10 @@ Antworte als JSON-Array:
  * @param {number} mealPlanId - Wochenplan-ID
  * @returns {Promise<object>} - Einkaufsliste mit zusammengefassten Zutaten
  */
-export async function generateShoppingList(userId, householdId, mealPlanId, options = {}) {
+export async function generateShoppingList(userId, householdId, mealPlanId, options = {}, progress = null) {
   const { excludePastDays = false, smartDedup = false } = options;
+
+  progress?.step(1); // Zutaten sammeln
 
   // --- 1. Alle Rezepte und Portionen aus dem Wochenplan laden ---
   const entries = db.prepare(`
@@ -415,12 +417,14 @@ export async function generateShoppingList(userId, householdId, mealPlanId, opti
   }
 
   // --- 2b. KI-gestützte Aggregation ---
+  progress?.step(2); // KI-Aggregation
   // Smart-Dedup: Semantische Duplikaterkennung (ersetzt Standard-Aggregation wenn aktiviert)
   const aggregated = smartDedup
     ? await aiSmartDeduplicateItems(rawItems)
     : await aiAggregateItems(rawItems);
 
   // --- 3. Vorräte abziehen ---
+  progress?.step(3); // Vorräte abziehen
   const pantryWhere = householdWhereClause(userId, householdId);
   const pantryItems = db.prepare(
     `SELECT * FROM pantry WHERE (${pantryWhere.clause}) AND (amount > 0 OR is_permanent = 1)`

@@ -117,6 +117,9 @@
         <!-- Benachrichtigungen -->
         <NotificationToast />
 
+        <!-- KI-Fortschrittsanzeige -->
+        <AIProgressOverlay />
+
         <!-- PWA Install-Banner (unten) -->
         <PwaInstallBanner />
 
@@ -144,11 +147,14 @@ import { syncManager } from '@/services/syncManager.js';
 import AppSidebar from '@/components/layout/AppSidebar.vue';
 import AppHeader from '@/components/layout/AppHeader.vue';
 import NotificationToast from '@/components/layout/NotificationToast.vue';
+import AIProgressOverlay from '@/components/ui/AIProgressOverlay.vue';
 import PwaInstallBanner from '@/components/layout/PwaInstallBanner.vue';
 import PwaUpdateBanner from '@/components/layout/PwaUpdateBanner.vue';
+import { useAIProgress } from '@/composables/useAIProgress.js';
 
 const authStore = useAuthStore();
 const householdStore = useHouseholdStore();
+const { handleProgressEvent: onAIProgress } = useAIProgress();
 const { isDark } = useTheme();
 const { isOnline, justReconnected } = useNetworkStatus();
 const { pendingCount, pendingActions } = offlineQueue;
@@ -181,6 +187,8 @@ const handleBeforeUnload = () => householdStore.disconnectSSE();
 // Auth-Status beim App-Start prüfen + Household laden
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload);
+  // AI-Progress-Events direkt an das Composable weiterleiten
+  householdStore.addEventListener('ai:progress', onAIProgress);
   await authStore.checkAuth();
   if (authStore.isLoggedIn) {
     await householdStore.fetchHouseholds();

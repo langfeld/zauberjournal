@@ -45,10 +45,11 @@ function getTransferAI() {
  *   errors: string[]
  * }>}
  */
-export async function aiPantryTransfer({ userId, householdId, ingredientName, amount, unit }) {
+export async function aiPantryTransfer({ userId, householdId, ingredientName, amount, unit }, progress = null) {
   const errors = [];
 
   // 1. Existierende Vorrats-Items laden
+  progress?.step(0); // Vorratsdaten laden
   const pWhere = householdWhereClause(userId, householdId);
   const pantryItems = db.prepare(
     `SELECT id, ingredient_name, amount, unit, category
@@ -146,6 +147,7 @@ Antworte ausschließlich mit einem JSON-Objekt:
 - normalized_name: Bei merge der bestehende Name, sonst der bereinigte neue Name`;
 
   try {
+    progress?.step(1); // KI-Zuordnung
     const ai = getTransferAI();
     const result = await ai.chatJSON(prompt, {
       temperature: 0.1,
@@ -166,6 +168,7 @@ Antworte ausschließlich mit einem JSON-Objekt:
     }
 
     // Validierung: Wenn merge_with_pantry_id gesetzt, muss das Item existieren
+    progress?.step(2); // Transfer durchführen
     if (result.merge_with_pantry_id) {
       const pantryItem = pantryItems.find(p => p.id === result.merge_with_pantry_id);
       if (!pantryItem) {

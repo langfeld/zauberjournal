@@ -13,6 +13,7 @@ import { getWeekStart, scaleIngredient, convertToBaseUnit, normalizeUnit, unitsC
 import { broadcastToHousehold } from './household-events.js';
 import { getSetting } from '../config/settings.js';
 import { aiPantryDeduction, undoAIPantryDeduction } from '../services/pantry-deduction-ai.js';
+import { createAIProgress } from '../utils/ai-progress.js';
 
 /**
  * Regelbasierter Vorratsabzug (Original-Logik).
@@ -839,6 +840,12 @@ export default async function mealplanRoutes(fastify) {
       if (newState === 1) {
         // Rezepttitel laden
         const recipe = db.prepare('SELECT title FROM recipes WHERE id = ?').get(entry.recipe_id);
+        const progress = createAIProgress(request.householdId, userId, 'pantry-deduction', 'Vorräte abziehen', [
+          'Rezeptdaten laden',
+          'KI-Berechnung',
+          'Vorräte aktualisieren',
+        ]);
+        progress.start();
         try {
           aiDeductionResult = await aiPantryDeduction({
             userId,
@@ -848,12 +855,14 @@ export default async function mealplanRoutes(fastify) {
             recipeTitle: recipe?.title || 'Unbekanntes Rezept',
             originalServings: entry.original_servings,
             plannedServings: entry.servings,
-          });
+          }, progress);
           pantryUpdated = aiDeductionResult.deductions.length;
+          progress.complete();
           if (aiDeductionResult.errors.length > 0) {
             console.warn('⚠️ AI Pantry-Deduction Warnungen:', aiDeductionResult.errors);
           }
         } catch (err) {
+          progress.error(err.message);
           console.error('❌ AI Pantry-Deduction Fehler, Fallback auf regelbasiert:', err.message);
           // Fallback auf regelbasierte Deduktion
           pantryUpdated = fallbackPantryDeduction(entry, userId, request.householdId, 1);

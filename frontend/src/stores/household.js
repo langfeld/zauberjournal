@@ -262,6 +262,7 @@ export const useHouseholdStore = defineStore('household', () => {
         'mealplan:generated', 'mealplan:updated',
         'shopping:generated', 'shopping:updated', 'shopping:status',
         'pantry:created', 'pantry:updated', 'pantry:deleted',
+        'ai:progress',
       ];
 
       for (const eventName of events) {

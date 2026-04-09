@@ -18,6 +18,7 @@ import sharp from 'sharp';
 import { generateId, safePath, getWeekStart, scaleIngredient, convertToBaseUnit, unitsCompatible, comparePantryAmount, sanitize, isPrivateUrl, validateDate } from '../utils/helpers.js';
 import { householdWhereClause } from '../config/database.js';
 import { broadcastToHousehold } from './household-events.js';
+import { createAIProgress } from '../utils/ai-progress.js';
 
 const ALLOWED_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']);
 const VALID_DIFFICULTIES = new Set(['easy', 'medium', 'hard', 'einfach', 'mittel', 'schwer']);
@@ -504,10 +505,19 @@ export default async function recipesRoutes(fastify) {
     const categoryNames = categories.map(c => c.name);
 
     // KI-Rezepterkennung starten (ein oder mehrere Bilder)
+    const progress = createAIProgress(request.householdId, userId, 'recipe-import-photo', 'Rezept aus Foto importieren', [
+      'Bilder verarbeiten',
+      'KI-Analyse',
+      'Rezept speichern',
+    ]);
+    progress.start();
+    try {
+    progress.step(1);
     const rawParsed = await parseRecipeFromImage(imageBuffers, categoryNames);
     const parsedRecipe = sanitizeAiRecipe(rawParsed);
 
     // Rezept in Datenbank speichern
+    progress.step(2);
     const transaction = db.transaction(() => {
       const recipeResult = db.prepare(`
         INSERT INTO recipes (user_id, title, description, servings, prep_time, cook_time, total_time, difficulty, image_url, ai_generated, calories, protein, carbs, fat, nutrition_note, nutrition_details, household_id, created_by_user_id)
@@ -571,11 +581,16 @@ export default async function recipesRoutes(fastify) {
 
     const recipeId = transaction();
 
+    progress.complete();
     return reply.status(201).send({
       id: recipeId,
       message: 'Rezept erfolgreich aus Foto importiert!',
       recipe: parsedRecipe,
     });
+    } catch (err) {
+      progress.error(err.message);
+      throw err;
+    }
   });
 
   /**
@@ -601,10 +616,17 @@ export default async function recipesRoutes(fastify) {
 
     const { clause: catClause, params: catParams } = householdWhereClause(userId, request.householdId);
     const categories = db.prepare(`SELECT name FROM categories WHERE ${catClause}`).all(...catParams);
+    const progressText = createAIProgress(request.householdId, userId, 'recipe-import-text', 'Rezept aus Text erstellen', [
+      'KI-Analyse',
+      'Rezept speichern',
+    ]);
+    progressText.start();
+    try {
     const rawParsed = await parseRecipeFromText(text, categories.map(c => c.name));
     const parsedRecipe = sanitizeAiRecipe(rawParsed);
 
     // Gleiche Speicher-Logik wie bei Foto-Import (ohne Bild)
+    progressText.step(1);
     const transaction = db.transaction(() => {
       const recipeResult = db.prepare(`
         INSERT INTO recipes (user_id, title, description, servings, prep_time, cook_time, total_time, difficulty, ai_generated, calories, protein, carbs, fat, nutrition_note, nutrition_details, household_id, created_by_user_id)
@@ -661,7 +683,12 @@ export default async function recipesRoutes(fastify) {
     });
 
     const recipeId = transaction();
+    progressText.complete();
     return reply.status(201).send({ id: recipeId, recipe: parsedRecipe });
+    } catch (err) {
+      progressText.error(err.message);
+      throw err;
+    }
   });
 
   /**
@@ -692,7 +719,15 @@ export default async function recipesRoutes(fastify) {
 
     const { clause: catClause, params: catParams } = householdWhereClause(userId, request.householdId);
     const categories = db.prepare(`SELECT name FROM categories WHERE ${catClause}`).all(...catParams);
+    const progressUrl = createAIProgress(request.householdId, userId, 'recipe-import-url', 'Rezept aus URL importieren', [
+      'Webseite laden',
+      'KI-Analyse',
+      'Rezept speichern',
+    ]);
+    progressUrl.start();
+    try {
     const { recipe: rawParsed, imageUrl: sourceImageUrl } = await parseRecipeFromUrl(url, categories.map(c => c.name));
+    progressUrl.step(1);
     const parsedRecipe = sanitizeAiRecipe(rawParsed);
 
     // Rezeptbild von der Quellseite herunterladen und lokal speichern
@@ -730,6 +765,7 @@ export default async function recipesRoutes(fastify) {
     }
 
     // Gleiche Speicher-Logik wie bei Text-Import
+    progressUrl.step(2);
     const transaction = db.transaction(() => {
       const recipeResult = db.prepare(`
         INSERT INTO recipes (user_id, title, description, servings, prep_time, cook_time, total_time, difficulty, image_url, source_url, ai_generated, notes, calories, protein, carbs, fat, nutrition_note, nutrition_details, household_id, created_by_user_id)
@@ -789,7 +825,12 @@ export default async function recipesRoutes(fastify) {
     });
 
     const recipeId = transaction();
+    progressUrl.complete();
     return reply.status(201).send({ id: recipeId, recipe: parsedRecipe });
+    } catch (err) {
+      progressUrl.error(err.message);
+      throw err;
+    }
   });
 
   /**
