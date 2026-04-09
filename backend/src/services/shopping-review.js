@@ -16,7 +16,7 @@
 import db, { householdWhereClause } from '../config/database.js';
 import { getAIProvider } from './ai/provider.js';
 import { getSetting } from '../config/settings.js';
-import { normalizeUnit } from '../utils/helpers.js';
+import { normalizeUnit, scaleIngredient } from '../utils/helpers.js';
 
 /**
  * Gibt den AI-Provider für den Shopping-Review zurück.
@@ -228,6 +228,7 @@ export async function reviewShoppingList(userId, householdId, listId) {
 ## Einkaufsliste
 ${JSON.stringify(shoppingContext, null, 2)}
 HINWEIS: Das Feld "recipe_ids" zeigt welche Rezepte zu diesem Einkaufslisteneintrag beigetragen haben. Wenn mehrere recipe_ids vorhanden sind, ist die Menge die SUMME aus mehreren Rezepten – das ist KEIN Fehler!
+WICHTIG: Die Mengen in der Einkaufsliste sind bereits auf die planned_servings der Rezepte SKALIERT! Wenn ein Rezept für 2 Portionen gespeichert ist (servings=2) aber für 8 Portionen geplant wurde (planned_servings=8), dann ist die Menge in der Einkaufsliste bereits mit Faktor 4 multipliziert. Das ist KORREKT und KEIN Plausibilitätsfehler!
 
 ## Vorratsschrank (aktueller Bestand)
 ${JSON.stringify(pantryContext, null, 2)}
@@ -278,6 +279,7 @@ Prüfe die Einkaufsliste auf folgende Probleme und antworte als JSON:
 
 4. **plausibility**: Ungewöhnlich hohe oder niedrige Mengen die auf einen Fehler hindeuten (z.B. 500g Salz für ein Rezept, 0.01 kg Fleisch).
    WICHTIG: Prüfe IMMER das Feld "recipe_ids" des Einkaufslisteneintrags! Wenn mehrere recipe_ids vorhanden sind, ist die Menge die SUMME aus diesen Rezepten. Teile die Gesamtmenge durch die Anzahl der Rezepte um die Menge pro Rezept zu berechnen. Melde KEINEN Plausibilitätsfehler wenn die Menge pro Rezept plausibel ist.
+   KRITISCH: Beachte die planned_servings! Die Mengen in der Einkaufsliste sind bereits auf die planned_servings skaliert. Beispiel: Rezept hat 200g Feta für servings=2. Wenn planned_servings=8, dann stehen 800g Feta in der Einkaufsliste. Das ist KORREKT (200g × 8/2 = 800g). Berechne die Menge PRO PORTION: 800g ÷ 8 = 100g pro Portion – völlig normal. Schlage NIEMALS vor, eine korrekt skalierte Menge zu reduzieren!
 
 5. **duplicate**: Zutaten die TATSÄCHLICH als ZWEI ODER MEHR separate Zeilen in der Einkaufsliste vorkommen und zusammengeführt werden sollten. Nutze die semantische Zutatenerkennung: "Zwiebel rot" und "Rote Zwiebel" als zwei Zeilen = Duplikat. "Tomate" und "Tomaten" als zwei Zeilen = Duplikat.
    KRITISCH: Wenn eine Zutat nur EINMAL in der Liste steht, ist sie KEIN Duplikat – auch wenn sie aus mehreren Rezepten stammt. Zähle die tatsächlichen Zeilen in der Einkaufsliste! Gib NIEMALS ein Issue für korrekt aggregierte Einzelzeilen aus.
@@ -476,15 +478,36 @@ Regeln:
         }
       // Auto-Resolve: Mengen automatisch anpassen
       } else if (autoAdjust && issue.suggestion?.action === 'adjust' && issue.item_id && issue.suggestion.amount != null) {
-        try {
-          db.prepare(
-            'UPDATE shopping_list_items SET amount = ?, unit = COALESCE(?, unit) WHERE id = ? AND shopping_list_id = ?'
-          ).run(issue.suggestion.amount, issue.suggestion.unit || null, issue.item_id, listId);
-          console.log(`🔍 KI-Review: Auto-Adjust Item ${issue.item_id} → ${issue.suggestion.amount} ${issue.suggestion.unit || ''}`);
-          autoResolved.push({ ...issue, autoResolved: true });
-        } catch (adjustErr) {
-          console.warn('⚠️ Auto-Adjust fehlgeschlagen:', adjustErr.message);
+        // Server-seitige Schutzlogik: Berechne die erwartete Mindestmenge basierend auf
+        // den Rezept-Zutaten × planned_servings. Verhindere, dass Auto-Adjust Mengen
+        // unter die skalierte Rezeptmenge reduziert (KI-Halluzination bei Portionsskalierung).
+        const targetItem = listItems.find(i => i.id === issue.item_id);
+        let expectedMinAmount = 0;
+        if (targetItem) {
+          const ingredientLower = resolveAlias(targetItem.ingredient_name).toLowerCase();
+          for (const recipe of recipesWithIngredients) {
+            for (const ing of recipe.ingredients) {
+              const ingCanonical = resolveAlias(ing.name).toLowerCase();
+              if (ingCanonical === ingredientLower && ing.amount) {
+                expectedMinAmount += scaleIngredient(ing.amount, recipe.servings, recipe.planned_servings);
+              }
+            }
+          }
+        }
+        if (expectedMinAmount > 0 && issue.suggestion.amount < expectedMinAmount * 0.9) {
+          console.log(`🔍 KI-Review: Auto-Adjust blockiert – KI schlug ${issue.suggestion.amount} vor, aber Rezepte erwarten mindestens ${expectedMinAmount} für "${targetItem?.ingredient_name}"`);
           manualIssues.push(issue);
+        } else {
+          try {
+            db.prepare(
+              'UPDATE shopping_list_items SET amount = ?, unit = COALESCE(?, unit) WHERE id = ? AND shopping_list_id = ?'
+            ).run(issue.suggestion.amount, issue.suggestion.unit || null, issue.item_id, listId);
+            console.log(`🔍 KI-Review: Auto-Adjust Item ${issue.item_id} → ${issue.suggestion.amount} ${issue.suggestion.unit || ''}`);
+            autoResolved.push({ ...issue, autoResolved: true });
+          } catch (adjustErr) {
+            console.warn('⚠️ Auto-Adjust fehlgeschlagen:', adjustErr.message);
+            manualIssues.push(issue);
+          }
         }
       } else {
         manualIssues.push(issue);
