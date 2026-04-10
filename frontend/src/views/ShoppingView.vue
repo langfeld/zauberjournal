@@ -877,9 +877,29 @@
 
       <!-- KI-Review: Auto-resolved Info -->
       <Transition name="slide">
-        <div v-if="shoppingStore.aiReviewAutoResolved.length > 0" class="flex items-start gap-2 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-emerald-700 dark:text-emerald-300 text-sm">
-          <CheckCircle class="mt-0.5 w-4 h-4 shrink-0" />
-          <p>{{ autoResolvedSummary }}</p>
+        <div v-if="shoppingStore.aiReviewAutoResolved.length > 0" class="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl overflow-hidden text-emerald-700 dark:text-emerald-300 text-sm">
+          <button
+            @click="autoResolvedExpanded = !autoResolvedExpanded"
+            class="flex items-center gap-2 hover:bg-emerald-100/50 dark:hover:bg-emerald-800/20 px-3 py-2 w-full text-left transition-colors"
+          >
+            <CheckCircle class="w-4 h-4 shrink-0" />
+            <span class="flex-1">{{ autoResolvedSummary }}</span>
+            <component :is="autoResolvedExpanded ? ChevronUp : ChevronDown" class="opacity-60 w-4 h-4 shrink-0" />
+          </button>
+          <Transition name="slide">
+            <div v-if="autoResolvedExpanded" class="px-3 pb-2.5 border-emerald-200/60 dark:border-emerald-800/30 border-t">
+              <ul class="space-y-1 pt-2">
+                <li
+                  v-for="(item, idx) in autoResolvedDetails"
+                  :key="idx"
+                  class="flex items-start gap-2 text-xs leading-relaxed"
+                >
+                  <component :is="autoResolvedIcon(item.type)" class="opacity-70 mt-0.5 w-3.5 h-3.5 shrink-0" />
+                  <span>{{ item.description }}</span>
+                </li>
+              </ul>
+            </div>
+          </Transition>
         </div>
       </Transition>
 
@@ -2387,6 +2407,9 @@ async function toggleShoppingStatus() {
 
 let cleanupShoppingSse = null;
 
+// Auto-Resolved Details (aufklappbar)
+const autoResolvedExpanded = ref(false);
+
 // Einkaufslisten-Generierung Optionen
 const showGenOptions = ref(false);
 const showHistoryDropdown = ref(false);
@@ -3530,6 +3553,35 @@ const autoResolvedSummary = computed(() => {
   if (adjusted) parts.push(`${adjusted} Menge angepasst`);
   return `${resolved.length} Artikel automatisch verarbeitet: ${parts.join(', ')}`;
 });
+
+/** Detail-Liste der Auto-Resolved-Aktionen für aufklappbare Anzeige */
+const autoResolvedDetails = computed(() => {
+  return shoppingStore.aiReviewAutoResolved.map(r => {
+    let description = '';
+    if (r.type === 'pantry_covered') {
+      description = `${r.ingredient || 'Zutat'}: abgehakt — ${r.message || 'im Vorrat vorhanden'}`;
+    } else if (r.type === 'duplicate') {
+      const target = r.merged_name || r.ingredient || 'Zutat';
+      const amount = r.merged_amount != null ? `${r.merged_amount}${r.merged_unit ? ' ' + r.merged_unit : ''}` : '';
+      description = r.message || `${target} zusammengeführt${amount ? ' → ' + amount : ''}`;
+    } else if (r.suggestion?.action === 'adjust') {
+      const amount = r.suggestion.amount != null ? `${r.suggestion.amount}${r.suggestion.unit ? ' ' + r.suggestion.unit : ''}` : '';
+      description = r.message || `${r.ingredient || 'Zutat'}: Menge angepasst${amount ? ' → ' + amount : ''}`;
+    } else {
+      description = r.message || `${r.ingredient || 'Zutat'}: automatisch verarbeitet`;
+    }
+    return { type: r.type, description };
+  });
+});
+
+/** Icon je Auto-Resolved-Typ */
+function autoResolvedIcon(type) {
+  switch (type) {
+    case 'pantry_covered': return Package;
+    case 'duplicate': return Merge;
+    default: return ArrowRight;
+  }
+}
 
 /** Globalen Index eines Item-Issues finden */
 function getGlobalIssueIndex(itemId, localIdx) {
