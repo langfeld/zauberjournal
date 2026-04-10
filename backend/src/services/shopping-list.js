@@ -17,6 +17,23 @@ import { getAIProvider } from './ai/provider.js';
 import { getSetting } from '../config/settings.js';
 
 /**
+ * Extrahiert ein Array aus einer KI-JSON-Antwort.
+ * OpenAI-kompatible APIs mit json_object-Mode liefern immer ein Objekt {},
+ * auch wenn der Prompt ein Array [] anfordert. Diese Funktion extrahiert
+ * das Array aus Wrapper-Objekten wie {"items": [...]} oder {"result": [...]}.
+ */
+function extractArray(response) {
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object') {
+    // Erstes Array-Property im Objekt suchen (ignoriere "thinking" etc.)
+    for (const [key, value] of Object.entries(response)) {
+      if (Array.isArray(value)) return value;
+    }
+  }
+  return null;
+}
+
+/**
  * KI-gestützte Aggregation der Einkaufsliste.
  * Fasst gleiche Zutaten mit verschiedenen Einheiten intelligent zusammen.
  * Fallback: nur identische Einheiten addieren.
@@ -70,19 +87,21 @@ Wähle die natürlichste Einkaufseinheit:
 Eingabe:
 ${JSON.stringify(toMerge.map(i => ({ name: i.name, amount: i.amount, unit: i.unit })), null, 2)}
 
-Antworte als JSON-Array:
-[{ "name": "Zutatename", "amount": 3, "unit": "" }]
+Antworte als JSON-Objekt mit einem "items"-Array:
+{"items": [{ "name": "Zutatename", "amount": 3, "unit": "" }]}
 
 Regeln:
 - Jede Zutat nur EINMAL in der Ausgabe
 - Mengen sinnvoll umrechnen (z.B. 150g Zwiebel ≈ 1-2 Zwiebeln → 2 Zwiebeln)
 - Bei Unsicherheit lieber aufrunden
-- name muss exakt einem der Eingabe-Namen entsprechen`;
+- name muss exakt einem der Eingabe-Namen entsprechen
+- Antworte NUR mit dem JSON-Objekt, kein "thinking"-Feld oder Erklärungen`;
 
-    const merged = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 2048 });
+    const rawResult = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 2048 });
+    const merged = extractArray(rawResult);
 
-    if (!Array.isArray(merged)) {
-      console.warn('⚠️ KI-Aggregation: Unerwartetes Format, nutze Fallback');
+    if (!merged) {
+      console.warn('⚠️ KI-Aggregation: Unerwartetes Format, nutze Fallback. Antwort:', JSON.stringify(rawResult).substring(0, 200));
       return preAggregated;
     }
 
@@ -254,14 +273,14 @@ async function aiSmartDeduplicateItems(itemsList) {
 ${JSON.stringify(preAggregated.map(i => ({ name: i.name, amount: i.amount, unit: i.unit })), null, 2)}
 
 ## Antwortformat
-Antworte als JSON-Array:
-[{
+Antworte als JSON-Objekt mit einem "items"-Array:
+{"items": [{
   "name": "Tomate",
   "amount": 5,
   "unit": "",
   "mergedFrom": ["Tomate", "Tomaten"],
   "mergeReason": "Plural/Singular desselben Produkts"
-}]
+}]}
 
 ## Regeln
 - Jede Zutat nur EINMAL in der Ausgabe
@@ -271,12 +290,14 @@ Antworte als JSON-Array:
 - Mengen sinnvoll umrechnen (z.B. 150g Zwiebel ≈ 1-2 Zwiebeln → 2 Zwiebeln)
 - Bei Unsicherheit lieber aufrunden
 - "name" muss exakt einem der Eingabe-Namen entsprechen (bevorzuge den gebräuchlicheren)
-- Verschiedene Zutaten die ähnlich klingen NICHT zusammenführen (z.B. "Lauch" ≠ "Knoblauch")`;
+- Verschiedene Zutaten die ähnlich klingen NICHT zusammenführen (z.B. "Lauch" ≠ "Knoblauch")
+- Antworte NUR mit dem JSON-Objekt, kein "thinking"-Feld oder Erklärungen`;
 
-    const merged = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 4096 });
+    const rawResult = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 4096 });
+    const merged = extractArray(rawResult);
 
-    if (!Array.isArray(merged)) {
-      console.warn('⚠️ KI-Smart-Dedup: Unerwartetes Format, nutze Standard-Aggregation');
+    if (!merged) {
+      console.warn('⚠️ KI-Smart-Dedup: Unerwartetes Format, nutze Standard-Aggregation. Antwort:', JSON.stringify(rawResult).substring(0, 200));
       return aiAggregateItems(itemsList);
     }
 
@@ -518,17 +539,19 @@ export async function generateShoppingList(userId, householdId, mealPlanId, opti
 Zutaten:
 ${JSON.stringify(queries, null, 2)}
 
-Antworte als JSON-Array. Für jede Zutat:
+Antworte als JSON-Objekt mit einem "items"-Array. Für jede Zutat:
 - "name": exakter Zutatname aus der Eingabe
 - "piece_g": geschätztes Gewicht eines Stücks in Gramm (0 wenn nicht sinnvoll schätzbar)
 
-Beispiel: [{ "name": "Avocado", "piece_g": 200 }]
+Beispiel: {"items": [{ "name": "Avocado", "piece_g": 200 }]}
 
-Nur Standardgewichte. Bei Unsicherheit lieber 0 angeben.`;
+Nur Standardgewichte. Bei Unsicherheit lieber 0 angeben.
+Antworte NUR mit dem JSON-Objekt, kein "thinking"-Feld.`;
 
-      const estimates = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 1024 });
+      const rawEstimates = await ai.chatJSON(prompt, { temperature: 0.1, maxTokens: 1024 });
+      const estimates = extractArray(rawEstimates);
 
-      if (Array.isArray(estimates)) {
+      if (estimates) {
         for (const est of estimates) {
           if (!est.piece_g || est.piece_g <= 0) continue;
           const match = needsAIEstimate.find(e => e.item.name.toLowerCase() === est.name?.toLowerCase());

@@ -345,13 +345,26 @@ Regeln:
 - KEIN Issue ausgeben für korrekt aggregierte Einzelzeilen, auch wenn die Menge aus mehreren Rezepten summiert wurde.
 - Leeres Array wenn alles in Ordnung ist
 - WICHTIG: Nutze IMMER die semantische Zutatenerkennung. Melde NIEMALS eine Zutat als fehlend die unter einem anderen aber gleichbedeutenden Namen bereits in der Liste steht (z.B. "Zwiebel rot" deckt "Rote Zwiebel" ab, "Paprika gelb" deckt "Gelbe Paprika" ab, etc.)
-- WICHTIG: Die Einkaufsliste wurde möglicherweise ohne vergangene Wochentage generiert. Prüfe nur Rezepte die in der obigen Rezeptliste aufgeführt sind.${skippedDayInfo ? `\n- HINWEIS: ${skippedDayInfo.skippedDays} vergangene Tage wurden beim Erstellen übersprungen. Die Rezepte dieser Tage sind NICHT in der obigen Rezeptliste enthalten und dürfen NICHT als fehlend gemeldet werden.` : ''}`;
+- WICHTIG: Die Einkaufsliste wurde möglicherweise ohne vergangene Wochentage generiert. Prüfe nur Rezepte die in der obigen Rezeptliste aufgeführt sind.
+- Antworte NUR mit dem JSON-Objekt. Kein "thinking"-Feld, keine Erklärungen außerhalb der Issues.${skippedDayInfo ? `\n- HINWEIS: ${skippedDayInfo.skippedDays} vergangene Tage wurden beim Erstellen übersprungen. Die Rezepte dieser Tage sind NICHT in der obigen Rezeptliste enthalten und dürfen NICHT als fehlend gemeldet werden.` : ''}`;
 
   try {
     const result = await ai.chatJSON(prompt, { temperature: 0.2, maxTokens: 4096 });
 
-    if (!result || !Array.isArray(result.issues)) {
-      console.warn('⚠️ KI-Review: Unerwartetes Format:', result);
+    // issues-Array extrahieren – auch aus Wrapper-Objekten mit abweichenden Keys
+    let issues = null;
+    if (result && Array.isArray(result.issues)) {
+      issues = result.issues;
+    } else if (Array.isArray(result)) {
+      issues = result;
+    } else if (result && typeof result === 'object') {
+      // Erstes Array-Property suchen (z.B. "items", "results" etc.)
+      const arrayProp = Object.values(result).find(v => Array.isArray(v));
+      if (arrayProp) issues = arrayProp;
+    }
+
+    if (!issues) {
+      console.warn('⚠️ KI-Review: Unerwartetes Format:', JSON.stringify(result).substring(0, 200));
       return { issues: [], autoResolved: [] };
     }
 
@@ -363,7 +376,7 @@ Regeln:
     // Gültige Recipe-IDs sammeln (für Validierung)
     const validRecipeIds = new Set(recipesWithIngredients.map(r => r.id));
 
-    for (const rawIssue of result.issues) {
+    for (const rawIssue of issues) {
       // Validierung des Issue-Formats
       if (!rawIssue.type || !rawIssue.message) continue;
 

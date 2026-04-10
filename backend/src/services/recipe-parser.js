@@ -436,10 +436,15 @@ Für das Rezept "${recipe.title}" mit den Zutaten: ${recipe.ingredients?.map(i =
 Welche der folgenden Kategorien passen? Wähle 1-3 passende Kategorien:
 ${availableCategories.join(', ')}
 
-Antworte als JSON-Array mit den passenden Kategorienamen:
-["Kategorie1", "Kategorie2"]
+Antworte als JSON-Objekt:
+{"categories": ["Kategorie1", "Kategorie2"]}
 `;
 
   const result = await ai.chatJSON(prompt, { temperature: 0.3 });
-  return Array.isArray(result) ? result : result.categories || [];
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === 'object') {
+    const arr = Object.values(result).find(v => Array.isArray(v));
+    if (arr) return arr;
+  }
+  return [];
 }
