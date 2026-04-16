@@ -183,6 +183,51 @@
                   </div>
 
                   <div v-else class="space-y-3">
+                    <!-- Plan auswählen -->
+                    <div v-if="mealPlanStore.plans.length" class="space-y-1.5">
+                      <p class="text-stone-400 dark:text-stone-500 text-xs">Plan auswählen</p>
+                      <div class="max-h-40 overflow-y-auto scrollbar-thin space-y-0.5 p-0.5">
+                        <button v-for="p in mealPlanStore.plans" :key="p.id"
+                          @click="selectShopPlan(p)"
+                          class="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors"
+                          :class="selectedShopPlanId === p.id
+                            ? 'bg-primary-50 dark:bg-primary-900/30 ring-1 ring-primary-300 dark:ring-primary-700'
+                            : 'hover:bg-stone-50 dark:hover:bg-stone-700/50'">
+                          <!-- Rezept-Anzahl Badge -->
+                          <div class="flex justify-center items-center rounded-md w-8 h-8 font-bold text-xs shrink-0"
+                            :class="selectedShopPlanId === p.id
+                              ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400'
+                              : 'bg-stone-100 dark:bg-stone-700 text-stone-500 dark:text-stone-400'">
+                            {{ p.meal_count || 0 }}
+                          </div>
+                          <!-- Datum + Info -->
+                          <div class="min-w-0 flex-1">
+                            <div class="font-medium text-sm truncate" :class="selectedShopPlanId === p.id ? 'text-primary-700 dark:text-primary-300' : 'text-stone-700 dark:text-stone-200'">
+                              {{ shopPlanDateRange(p) }}
+                            </div>
+                            <div class="text-xs text-stone-400 dark:text-stone-500">{{ p.meal_count || 0 }} Rezepte · {{ shopPlanDaysCount(p) }} Tage</div>
+                          </div>
+                          <!-- Status-Badges -->
+                          <div class="flex items-center gap-1 shrink-0">
+                            <span v-if="p.has_shopping_list" class="flex items-center gap-0.5 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-amber-700 dark:text-amber-400 text-[10px] font-medium" title="Einkaufsliste bereits erstellt">
+                              <ShoppingCart class="w-3 h-3" />
+                            </span>
+                            <span v-if="p.is_locked" class="flex items-center gap-0.5 bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 rounded text-emerald-700 dark:text-emerald-400 text-[10px] font-medium" title="Plan fixiert">
+                              <Lock class="w-3 h-3" />
+                            </span>
+                          </div>
+                        </button>
+                      </div>
+                      <!-- Hinweis wenn Plan schon Einkaufsliste hat -->
+                      <p v-if="selectedShopPlan?.has_shopping_list" class="flex items-start gap-1.5 bg-amber-50 dark:bg-amber-900/20 px-2.5 py-2 rounded-lg text-amber-700 dark:text-amber-400 text-xs">
+                        <AlertTriangle class="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span>Für diesen Plan wurde bereits eine Einkaufsliste erstellt.</span>
+                      </p>
+                    </div>
+
+                    <!-- Trennlinie -->
+                    <div v-if="mealPlanStore.plans.length" class="border-t border-stone-200 dark:border-stone-700" />
+
                     <!-- Von / Bis Datepicker -->
                     <div class="gap-2 grid grid-cols-2">
                       <div>
@@ -2428,6 +2473,55 @@ const genIncludePastDays = ref(false); // Standardmäßig: vergangene Tage NICHT
 const shopStartDate = ref(null); // Von-Datum (YYYY-MM-DD)
 const shopEndDate = ref(null); // Bis-Datum (YYYY-MM-DD)
 const availablePlansLoading = ref(false);
+const selectedShopPlanId = ref(null); // Aktuell gewählter Plan (ID)
+
+// Gewählter Plan als Objekt
+const selectedShopPlan = computed(() => {
+  if (!selectedShopPlanId.value) return null;
+  return mealPlanStore.plans.find(p => p.id === selectedShopPlanId.value) || null;
+});
+
+// Plan auswählen → Dates auto-setzen
+function selectShopPlan(plan) {
+  if (selectedShopPlanId.value === plan.id) {
+    // Deselect bei erneutem Klick
+    selectedShopPlanId.value = null;
+    return;
+  }
+  selectedShopPlanId.value = plan.id;
+  shopStartDate.value = plan.start_date || plan.week_start;
+  shopEndDate.value = plan.end_date || addDays(plan.start_date || plan.week_start, 6);
+}
+
+// Helfer: Plan-Datumsbereich formatieren (dd.mm. – dd.mm.yy)
+function shopPlanDateRange(plan) {
+  if (!plan) return '';
+  const start = plan.start_date || plan.week_start;
+  const end = plan.end_date;
+  if (start && end) {
+    const [sy, sm, sd] = start.split('-').map(Number);
+    const [ey, em, ed] = end.split('-').map(Number);
+    const startDt = new Date(sy, sm - 1, sd, 12, 0, 0);
+    const endDt = new Date(ey, em - 1, ed, 12, 0, 0);
+    const s = startDt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    const e = endDt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    return `${s} – ${e}`;
+  }
+  return start || 'Plan';
+}
+
+// Helfer: Anzahl Tage im Plan
+function shopPlanDaysCount(plan) {
+  if (!plan) return 0;
+  const start = plan.start_date || plan.week_start;
+  const end = plan.end_date;
+  if (!start || !end) return 0;
+  const [sy, sm, sd] = start.split('-').map(Number);
+  const [ey, em, ed] = end.split('-').map(Number);
+  const startDt = new Date(sy, sm - 1, sd, 12, 0, 0);
+  const endDt = new Date(ey, em - 1, ed, 12, 0, 0);
+  return Math.round((endDt - startDt) / (1000 * 60 * 60 * 24)) + 1;
+}
 
 // Dialog: Bestehende Liste vorhanden
 const showListExistsDialog = ref(false);
@@ -2498,18 +2592,21 @@ function setSmartDateDefaults() {
       return end >= today;
     });
     if (futurePlan) {
+      selectedShopPlanId.value = futurePlan.id;
       shopStartDate.value = futurePlan.start_date || futurePlan.week_start;
       shopEndDate.value = futurePlan.end_date || addDays(futurePlan.start_date || futurePlan.week_start, 6);
       return;
     }
   }
   // Fallback: Heute → +6 Tage
+  selectedShopPlanId.value = null;
   shopStartDate.value = today;
   shopEndDate.value = addDays(today, 6);
 }
 
 // Quick-Button Presets für Datumsbereich
 function setShopDatePreset(preset) {
+  selectedShopPlanId.value = null; // Manuelle Auswahl → Plan-Selektion aufheben
   const today = toLocalYMD(new Date());
   const monday = toLocalYMD(getCurrentMonday());
   switch (preset) {

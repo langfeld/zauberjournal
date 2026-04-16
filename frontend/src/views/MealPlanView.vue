@@ -87,7 +87,7 @@
                   @click="onPlanSelect(p.id); showPlanDropdown = false"
                   class="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors"
                   :class="selectedPlanId === p.id
-                    ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
+                    ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 ring-1 ring-primary-300 dark:ring-primary-700'
                     : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-200'">
                   <div class="flex justify-center items-center rounded-lg w-9 h-9 font-bold text-sm shrink-0"
                     :class="selectedPlanId === p.id
@@ -751,7 +751,7 @@
 
     <!-- ═══════════════════ WOCHEN-ANSICHT ═══════════════════ -->
     <!-- Fixiert-Banner: Desktop -->
-    <div v-if="isLocked && currentPlan" class="hidden lg:flex items-center gap-2 bg-amber-50 dark:bg-amber-950/50 px-4 py-2.5 border border-amber-200 dark:border-amber-800 rounded-xl">
+    <div v-if="isLocked && currentPlan && viewMode === 'week'" class="hidden lg:flex items-center gap-2 bg-amber-50 dark:bg-amber-950/50 px-4 py-2.5 border border-amber-200 dark:border-amber-800 rounded-xl">
       <Lock class="w-4 h-4 text-amber-500 shrink-0" />
       <p class="text-amber-700 dark:text-amber-300 text-sm">
         <span class="font-medium">Woche fixiert</span> – Bereits eingekauft. Änderungen sind gesperrt.
@@ -761,7 +761,7 @@
       </button>
     </div>
     <!-- Fixiert-Banner: Mobile (kompakt) -->
-    <div v-if="isLocked && currentPlan" class="lg:hidden flex items-center gap-2 bg-amber-50 dark:bg-amber-950/50 px-3 py-2 border border-amber-200 dark:border-amber-800 rounded-xl">
+    <div v-if="isLocked && currentPlan && viewMode === 'week'" class="lg:hidden flex items-center gap-2 bg-amber-50 dark:bg-amber-950/50 px-3 py-2 border border-amber-200 dark:border-amber-800 rounded-xl">
       <Lock class="w-4 h-4 text-amber-500 shrink-0" />
       <span class="flex-1 font-medium text-amber-700 dark:text-amber-300 text-xs">Woche fixiert</span>
       <button @click="toggleLockPlan" class="text-amber-600 hover:text-amber-800 dark:hover:text-amber-200 dark:text-amber-400 text-xs underline hover:no-underline shrink-0">

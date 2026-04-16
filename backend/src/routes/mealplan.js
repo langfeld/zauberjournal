@@ -323,9 +323,11 @@ export default async function mealplanRoutes(fastify) {
 
     const plans = db.prepare(`
       SELECT mp.id, mp.week_start, mp.start_date, mp.end_date, mp.is_locked, mp.created_at,
-             COUNT(mpe.id) as meal_count
+             COUNT(DISTINCT mpe.id) as meal_count,
+             MAX(CASE WHEN sl.id IS NOT NULL THEN 1 ELSE 0 END) as has_shopping_list
       FROM meal_plans mp
       LEFT JOIN meal_plan_entries mpe ON mp.id = mpe.meal_plan_id
+      LEFT JOIN shopping_lists sl ON sl.meal_plan_id = mp.id
       WHERE (${hhWhere.clause})
       GROUP BY mp.id
       HAVING meal_count > 0
