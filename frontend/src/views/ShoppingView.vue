@@ -709,7 +709,9 @@
                   <!-- Produktinfo mit Bild -->
                   <div class="flex items-center gap-3 p-3">
                     <!-- Produktbild -->
-                    <div class="flex justify-center items-center bg-white dark:bg-stone-700 rounded-lg w-14 h-14 overflow-hidden shrink-0">
+                    <div class="flex justify-center items-center bg-white dark:bg-stone-700 rounded-lg w-14 h-14 overflow-hidden shrink-0"
+                      :class="{ 'cursor-zoom-in': item.rewe_product.imageUrl }"
+                      @click.stop="item.rewe_product.imageUrl && openLightbox(item.rewe_product.imageUrl, item.rewe_product.name)">
                       <img
                         v-if="item.rewe_product.imageUrl"
                         :src="item.rewe_product.imageUrl"
@@ -1562,7 +1564,8 @@
                       v-if="pref.rewe_image_url"
                       :src="pref.rewe_image_url"
                       :alt="pref.rewe_product_name"
-                      class="rounded-lg w-12 h-12 object-contain shrink-0"
+                      class="rounded-lg w-12 h-12 object-contain shrink-0 cursor-zoom-in"
+                      @click.stop="openLightbox(pref.rewe_image_url, pref.rewe_product_name)"
                     />
                     <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-800 rounded-lg w-12 h-12 text-xl shrink-0">🏪</div>
 
@@ -1723,7 +1726,9 @@
                   class="flex items-center gap-3 hover:bg-stone-50 dark:hover:bg-stone-800/30 px-5 py-3 transition-colors"
                 >
                   <!-- Produktbild -->
-                  <div class="flex justify-center items-center bg-white dark:bg-stone-700 rounded-lg w-10 h-10 overflow-hidden shrink-0">
+                  <div class="flex justify-center items-center bg-white dark:bg-stone-700 rounded-lg w-10 h-10 overflow-hidden shrink-0"
+                    :class="{ 'cursor-zoom-in': item.rewe_product.imageUrl }"
+                    @click.stop="item.rewe_product.imageUrl && openLightbox(item.rewe_product.imageUrl, item.rewe_product.name)">
                     <img
                       v-if="item.rewe_product.imageUrl"
                       :src="item.rewe_product.imageUrl"
@@ -1852,7 +1857,9 @@
                     }"
                   >
                     <!-- Produktbild -->
-                    <div class="flex justify-center items-center bg-white dark:bg-stone-700 border border-stone-100 dark:border-stone-600 rounded-lg w-12 h-12 overflow-hidden shrink-0">
+                    <div class="flex justify-center items-center bg-white dark:bg-stone-700 border border-stone-100 dark:border-stone-600 rounded-lg w-12 h-12 overflow-hidden shrink-0"
+                      :class="{ 'cursor-zoom-in': product.imageUrl }"
+                      @click.stop="product.imageUrl && openLightbox(product.imageUrl, product.name)">
                       <img
                         v-if="product.imageUrl"
                         :src="product.imageUrl"
@@ -2335,6 +2342,21 @@
       </Transition>
     </Teleport>
 
+    <!-- Bild-Lightbox -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="lightboxImage" class="z-[100] fixed inset-0 flex justify-center items-center bg-black/80 backdrop-blur-sm cursor-zoom-out" @click="closeLightbox">
+          <img
+            :src="lightboxImage.src"
+            :alt="lightboxImage.alt"
+            class="shadow-2xl rounded-xl max-w-[90vw] max-h-[85vh] object-contain"
+            @click.stop
+          />
+          <p v-if="lightboxImage.alt" class="bottom-6 absolute bg-black/60 px-4 py-2 rounded-lg max-w-[80vw] text-center text-sm text-white truncate">{{ lightboxImage.alt }}</p>
+        </div>
+      </Transition>
+    </Teleport>
+
   </div>
 </template>
 
@@ -2520,6 +2542,15 @@ const settingsTab = ref('rewe');
 const showRewePreview = ref(false);
 const reweAction = ref(['script', 'direct'].includes(localStorage.getItem('rewe_action')) ? localStorage.getItem('rewe_action') : 'script');
 const reweShowPreview = ref(localStorage.getItem('rewe_preview') !== 'false');
+
+// Bild-Lightbox
+const lightboxImage = ref(null); // { src, alt }
+function openLightbox(src, alt) {
+  if (src) lightboxImage.value = { src, alt: alt || '' };
+}
+function closeLightbox() {
+  lightboxImage.value = null;
+}
 
 // API-Key Management
 const apiKeyValue = ref(null);

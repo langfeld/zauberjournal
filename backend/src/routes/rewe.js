@@ -7,10 +7,10 @@
 
 import { matchShoppingListWithRewe, searchProducts, scoreRelevance, buildReweProductUrl } from '../services/rewe-api.js';
 import { getUserReweConfig, isReweEnabled } from '../config/settings.js';
-import db from '../config/database.js';
+import db, { householdWhereClause } from '../config/database.js';
 
 export default async function reweRoutes(fastify) {
-  fastify.addHook('onRequest', fastify.authenticate);
+  fastify.addHook('onRequest', fastify.resolveHousehold);
 
   /**
    * GET /api/rewe/search-ingredient
@@ -81,12 +81,13 @@ export default async function reweRoutes(fastify) {
   }, async (request, reply) => {
     const { listId } = request.body;
 
-    // Einkaufslisten-Items laden
+    // Einkaufslisten-Items laden (Haushalt-kompatibel)
+    const hhWhere = householdWhereClause(request.user.id, request.householdId, 'sl');
     const items = db.prepare(`
       SELECT sli.* FROM shopping_list_items sli
       JOIN shopping_lists sl ON sli.shopping_list_id = sl.id
-      WHERE sl.id = ? AND sl.user_id = ? AND sli.is_checked = 0
-    `).all(listId, request.user.id);
+      WHERE sl.id = ? AND (${hhWhere.clause}) AND sli.is_checked = 0
+    `).all(listId, ...hhWhere.params);
 
     if (!items.length) {
       return reply.status(404).send({ error: 'Keine offenen Items in der Einkaufsliste' });
@@ -460,10 +461,11 @@ export default async function reweRoutes(fastify) {
   }, async (request) => {
     const userId = request.user.id;
 
-    // Aktive Liste mit REWE-Produkt-IDs laden
+    // Aktive Liste mit REWE-Produkt-IDs laden (Haushalt-kompatibel)
+    const hhWhere = householdWhereClause(request.user.id, request.householdId);
     const activeList = db.prepare(
-      'SELECT id FROM shopping_lists WHERE user_id = ? AND is_active = 1'
-    ).get(userId);
+      `SELECT id FROM shopping_lists WHERE (${hhWhere.clause}) AND is_active = 1`
+    ).get(...hhWhere.params);
 
     if (!activeList) {
       return { error: 'Keine aktive Einkaufsliste.' };
