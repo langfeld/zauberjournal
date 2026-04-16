@@ -162,7 +162,7 @@ export default async function backupRoutes(fastify) {
     const mealPlans = db.prepare(`SELECT * FROM meal_plans WHERE (${hhWhere.clause})`).all(...hhWhere.params);
     const exportedMealPlans = mealPlans.map(plan => {
       const entries = db.prepare(`
-        SELECT mpe.day_of_week, mpe.meal_type, mpe.category_id, mpe.servings, mpe.is_cooked,
+        SELECT mpe.day_of_week, mpe.meal_type, mpe.category_id, mpe.plan_date, mpe.servings, mpe.is_cooked,
                r.title as recipe_title, c.name as category_name
         FROM meal_plan_entries mpe
         LEFT JOIN recipes r ON mpe.recipe_id = r.id
@@ -172,9 +172,12 @@ export default async function backupRoutes(fastify) {
 
       return {
         week_start: plan.week_start,
+        start_date: plan.start_date || null,
+        end_date: plan.end_date || null,
         created_at: plan.created_at,
         entries: entries.map(e => ({
           day_of_week: e.day_of_week,
+          plan_date: e.plan_date || null,
           category_name: e.category_name || e.meal_type,
           servings: e.servings,
           is_cooked: e.is_cooked,
@@ -608,9 +611,13 @@ export default async function backupRoutes(fastify) {
           continue;
         }
 
+        // start_date/end_date validieren (optionale Felder aus neuem Export-Format)
+        const startDate = plan.start_date && /^\d{4}-\d{2}-\d{2}$/.test(plan.start_date) ? plan.start_date : null;
+        const endDate = plan.end_date && /^\d{4}-\d{2}-\d{2}$/.test(plan.end_date) ? plan.end_date : null;
+
         const planResult = db.prepare(
-          'INSERT INTO meal_plans (user_id, week_start, household_id) VALUES (?, ?, ?)'
-        ).run(userId, plan.week_start, householdId || null);
+          'INSERT INTO meal_plans (user_id, week_start, start_date, end_date, household_id) VALUES (?, ?, ?, ?, ?)'
+        ).run(userId, plan.week_start, startDate, endDate, householdId || null);
         const newPlanId = planResult.lastInsertRowid;
         result.meal_plans.imported++;
 
@@ -631,12 +638,15 @@ export default async function backupRoutes(fastify) {
             const categoryId = resolveCategoryId(entry);
             // backward-compat: meal_type als denormalisiertes Feld mitschreiben
             const mealType = entry.meal_type || entry.category_name || 'mittag';
+            // plan_date aus neuem Export-Format (optional)
+            const planDate = entry.plan_date && /^\d{4}-\d{2}-\d{2}$/.test(entry.plan_date) ? entry.plan_date : null;
 
             db.prepare(
-              'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?, ?)'
+              'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             ).run(
               newPlanId, recipeId,
               Math.min(Math.max(parseInt(entry.day_of_week) || 0, 0), 6),
+              planDate,
               mealType,
               categoryId,
               Math.min(Math.max(parseInt(entry.servings) || 2, 1), 100),

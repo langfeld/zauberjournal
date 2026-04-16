@@ -345,45 +345,88 @@ Antworte als JSON-Objekt mit einem "items"-Array:
 }
 
 /**
- * Generiert eine Einkaufsliste aus einem Wochenplan
+ * Generiert eine Einkaufsliste aus einem Wochenplan oder Datumsbereich
  * @param {number} userId - Benutzer-ID
- * @param {number} mealPlanId - Wochenplan-ID
+ * @param {number|null} householdId - Haushalt-ID
+ * @param {number|null} mealPlanId - Wochenplan-ID (Legacy-Modus)
+ * @param {object} options
+ * @param {boolean} options.excludePastDays - Vergangene Tage ausschließen
+ * @param {boolean} options.smartDedup - KI-Smart-Dedup
+ * @param {string} options.startDate - YYYY-MM-DD Startdatum (Datumsbereich-Modus)
+ * @param {string} options.endDate - YYYY-MM-DD Enddatum (Datumsbereich-Modus)
  * @returns {Promise<object>} - Einkaufsliste mit zusammengefassten Zutaten
  */
 export async function generateShoppingList(userId, householdId, mealPlanId, options = {}, progress = null) {
-  const { excludePastDays = false, smartDedup = false } = options;
+  const { excludePastDays = false, smartDedup = false, startDate, endDate } = options;
 
   progress?.step(1); // Zutaten sammeln
 
-  // --- 1. Alle Rezepte und Portionen aus dem Wochenplan laden ---
-  const entries = db.prepare(`
-    SELECT
-      mpe.recipe_id,
-      mpe.servings as planned_servings,
-      mpe.day_of_week,
-      r.servings as original_servings,
-      r.title as recipe_title
-    FROM meal_plan_entries mpe
-    JOIN recipes r ON mpe.recipe_id = r.id
-    WHERE mpe.meal_plan_id = ?
-  `).all(mealPlanId);
+  // --- 1. Alle Rezepte und Portionen laden ---
+  let entries;
+
+  if (startDate && endDate) {
+    // Datumsbereich-Modus: Entries über alle Pläne hinweg laden
+    const hw = householdWhereClause(userId, householdId, 'mp');
+    entries = db.prepare(`
+      SELECT
+        mpe.recipe_id,
+        mpe.servings as planned_servings,
+        mpe.day_of_week,
+        mpe.plan_date,
+        r.servings as original_servings,
+        r.title as recipe_title
+      FROM meal_plan_entries mpe
+      JOIN meal_plans mp ON mpe.meal_plan_id = mp.id
+      JOIN recipes r ON mpe.recipe_id = r.id
+      WHERE (${hw.clause}) AND mpe.plan_date BETWEEN ? AND ?
+    `).all(...hw.params, startDate, endDate);
+  } else {
+    // Legacy-Modus: Entries eines einzelnen Plans laden
+    entries = db.prepare(`
+      SELECT
+        mpe.recipe_id,
+        mpe.servings as planned_servings,
+        mpe.day_of_week,
+        mpe.plan_date,
+        r.servings as original_servings,
+        r.title as recipe_title
+      FROM meal_plan_entries mpe
+      JOIN recipes r ON mpe.recipe_id = r.id
+      WHERE mpe.meal_plan_id = ?
+    `).all(mealPlanId);
+  }
 
   // Vergangene Tage herausfiltern (optional)
   let filteredEntries = entries;
   let skippedDays = 0;
   if (excludePastDays) {
-    const plan = db.prepare('SELECT week_start FROM meal_plans WHERE id = ?').get(mealPlanId);
-    if (plan?.week_start) {
-      const weekStart = new Date(plan.week_start + 'T00:00:00');
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const diffMs = today.getTime() - weekStart.getTime();
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      if (diffDays > 0 && diffDays <= 6) {
-        const beforeCount = filteredEntries.length;
-        filteredEntries = filteredEntries.filter(e => e.day_of_week >= diffDays);
-        skippedDays = diffDays;
-        console.log(`📅 ${beforeCount - filteredEntries.length} Einträge von ${skippedDays} vergangenen Tagen übersprungen`);
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    if (entries.some(e => e.plan_date)) {
+      // Neuer Modus: plan_date-basiert filtern
+      const beforeCount = filteredEntries.length;
+      filteredEntries = filteredEntries.filter(e => !e.plan_date || e.plan_date >= todayStr);
+      const skippedEntries = beforeCount - filteredEntries.length;
+      if (skippedEntries > 0) {
+        const skippedDates = new Set(entries.filter(e => e.plan_date && e.plan_date < todayStr).map(e => e.plan_date));
+        skippedDays = skippedDates.size;
+        console.log(`📅 ${skippedEntries} Einträge von ${skippedDays} vergangenen Tagen übersprungen`);
+      }
+    } else {
+      // Legacy-Modus: day_of_week-basiert filtern
+      const plan = mealPlanId ? db.prepare('SELECT week_start FROM meal_plans WHERE id = ?').get(mealPlanId) : null;
+      if (plan?.week_start) {
+        const weekStart = new Date(plan.week_start + 'T00:00:00');
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const diffMs = today.getTime() - weekStart.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        if (diffDays > 0 && diffDays <= 6) {
+          const beforeCount = filteredEntries.length;
+          filteredEntries = filteredEntries.filter(e => e.day_of_week >= diffDays);
+          skippedDays = diffDays;
+          console.log(`📅 ${beforeCount - filteredEntries.length} Einträge von ${skippedDays} vergangenen Tagen übersprungen`);
+        }
       }
     }
   }

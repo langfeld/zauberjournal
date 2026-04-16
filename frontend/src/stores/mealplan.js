@@ -13,6 +13,7 @@ import { offlineQueue } from '@/services/offlineQueue.js';
 
 export const useMealPlanStore = defineStore('mealplan', () => {
   const currentPlan = ref(null);
+  const plans = ref([]); // Liste aller Pläne (für Plan-Ansicht Dropdown)
   const reasoning = ref(null);
   const reasoningSource = ref(null); // 'ai' | 'algorithm' | null
   const reasoningLoading = ref(false); // Lädt KI-Reasoning im Hintergrund?
@@ -317,6 +318,38 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     return data;
   }
 
+  /** Alle Pläne mit Metadaten laden (für Plan-Ansicht Dropdown) */
+  async function fetchPlans() {
+    const data = await api.get('/mealplan/plans');
+    plans.value = data.plans || [];
+    return data;
+  }
+
+  /** Plan per ID laden und als currentPlan setzen */
+  async function fetchPlanById(planId) {
+    loading.value = true;
+    try {
+      const data = await api.get(`/mealplan?planId=${planId}`);
+      currentPlan.value = data.plan;
+      lastFetched.value = Date.now();
+      if (data.plan?.reasoning) {
+        reasoning.value = data.plan.reasoning;
+        reasoningSource.value = 'ai';
+      } else {
+        reasoning.value = null;
+        reasoningSource.value = null;
+      }
+      return data;
+    } catch (err) {
+      if (!navigator.onLine && currentPlan.value) {
+        return { plan: currentPlan.value };
+      }
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   /** Plan auf eine andere Woche duplizieren */
   async function duplicatePlan(sourcePlanId, targetWeekStart) {
     const data = await api.post(`/mealplan/${sourcePlanId}/duplicate`, { targetWeekStart });
@@ -328,9 +361,9 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   return {
-    currentPlan, reasoning, reasoningSource, reasoningLoading, planHistory, availableWeeks, lastWeekRecipes, loading, generating, lastFetched,
+    currentPlan, plans, reasoning, reasoningSource, reasoningLoading, planHistory, availableWeeks, lastWeekRecipes, loading, generating, lastFetched,
     pastWeekRecipes, pastWeekOffset, pastWeekNumber, pastWeekHasPlan, pastWeekIndex, pastWeeksList,
-    generatePlan, pollReasoning, fetchCurrentPlan, fetchHistory, fetchAvailableWeeks, fetchLastWeekRecipes, fetchPastWeekRecipes,
+    generatePlan, pollReasoning, fetchCurrentPlan, fetchPlanById, fetchPlans, fetchHistory, fetchAvailableWeeks, fetchLastWeekRecipes, fetchPastWeekRecipes,
     fetchSuggestions, markCooked, updateServings, swapRecipe, addEntry, addRecipeToPlan, moveEntry, removeEntry, deletePlan,
     toggleLock, duplicatePlan,
   };

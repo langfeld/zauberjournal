@@ -29,23 +29,24 @@ export default async function shoppingRoutes(fastify) {
 
   /**
    * POST /api/shopping/generate
-   * Einkaufsliste aus Wochenplan generieren
+   * Einkaufsliste aus Wochenplan oder Datumsbereich generieren
    */
   fastify.post('/generate', {
     schema: {
-      description: 'Einkaufsliste aus Wochenplan generieren',
+      description: 'Einkaufsliste aus Wochenplan oder Datumsbereich generieren',
       tags: ['Einkaufsliste'],
       security: [{ bearerAuth: [] }],
       body: {
         type: 'object',
-        required: ['mealPlanId'],
         properties: {
-          mealPlanId: { type: 'integer' },
+          mealPlanId: { type: 'integer', description: 'Wochenplan-ID (Legacy-Modus)' },
+          startDate: { type: 'string', format: 'date', description: 'Startdatum (Datumsbereich-Modus)' },
+          endDate: { type: 'string', format: 'date', description: 'Enddatum (Datumsbereich-Modus)' },
           name: { type: 'string' },
           excludePastDays: {
             type: 'boolean',
             default: true,
-            description: 'Vergangene Tage der Woche von der Einkaufsliste ausschließen',
+            description: 'Vergangene Tage von der Einkaufsliste ausschließen',
           },
           mode: {
             type: 'string',
@@ -59,7 +60,15 @@ export default async function shoppingRoutes(fastify) {
   }, async (request, reply) => {
     const userId = request.user.id;
     const householdId = request.householdId;
-    const { mealPlanId, name, excludePastDays = true, mode = 'replace' } = request.body;
+    const { mealPlanId, startDate, endDate, name, excludePastDays = true, mode = 'replace' } = request.body;
+
+    // Validierung: entweder mealPlanId oder startDate+endDate
+    if (!mealPlanId && (!startDate || !endDate)) {
+      return reply.status(400).send({ error: 'Entweder mealPlanId oder startDate+endDate angeben' });
+    }
+    if (startDate && endDate && startDate > endDate) {
+      return reply.status(400).send({ error: 'startDate muss vor endDate liegen' });
+    }
 
     // User-Settings laden (Smart-Dedup und Auto-Review)
     const userSmartDedup = db.prepare(
@@ -71,14 +80,16 @@ export default async function shoppingRoutes(fastify) {
     const smartDedup = userSmartDedup?.value === 'true' || userSmartDedup?.value === '1';
     const autoReview = userAutoReview?.value === 'true' || userAutoReview?.value === '1';
 
-    // Prüfen ob Plan existiert und dem User gehört
-    const mpWhere = householdWhereClause(userId, householdId);
-    const plan = db.prepare(
-      `SELECT * FROM meal_plans WHERE id = ? AND (${mpWhere.clause})`
-    ).get(mealPlanId, ...mpWhere.params);
+    // Prüfen ob Plan existiert (nur bei mealPlanId-Modus)
+    if (mealPlanId) {
+      const mpWhere = householdWhereClause(userId, householdId);
+      const plan = db.prepare(
+        `SELECT * FROM meal_plans WHERE id = ? AND (${mpWhere.clause})`
+      ).get(mealPlanId, ...mpWhere.params);
 
-    if (!plan) {
-      return reply.status(404).send({ error: 'Wochenplan nicht gefunden' });
+      if (!plan) {
+        return reply.status(404).send({ error: 'Wochenplan nicht gefunden' });
+      }
     }
 
     // Progress-Reporter aufsetzen
@@ -95,7 +106,7 @@ export default async function shoppingRoutes(fastify) {
 
     try {
     // Einkaufsliste generieren (mit Vorratsschrank-Abgleich + KI-Aggregation)
-    const shoppingData = await generateShoppingList(userId, householdId, mealPlanId, { excludePastDays, smartDedup }, progress);
+    const shoppingData = await generateShoppingList(userId, householdId, mealPlanId, { excludePastDays, smartDedup, startDate, endDate }, progress);
 
     // Aktive Liste ermitteln
     const slWhere = householdWhereClause(userId, householdId);
@@ -153,8 +164,10 @@ export default async function shoppingRoutes(fastify) {
       });
       appendTransaction();
 
-      // meal_plan_id der Liste aktualisieren (auf den neuesten Plan)
-      db.prepare('UPDATE shopping_lists SET meal_plan_id = ? WHERE id = ?').run(mealPlanId, listId);
+      // meal_plan_id der Liste aktualisieren (auf den neuesten Plan, falls vorhanden)
+      if (mealPlanId) {
+        db.prepare('UPDATE shopping_lists SET meal_plan_id = ? WHERE id = ?').run(mealPlanId, listId);
+      }
 
     } else {
       // --- REPLACE-Modus (Standard): Neue Liste erstellen ---

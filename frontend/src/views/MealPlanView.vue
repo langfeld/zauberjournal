@@ -45,7 +45,7 @@
         </button>
         <!-- Split-Button: Generieren + Einstellungen -->
         <div class="flex sm:flex-initial flex-1 shadow-sm rounded-xl overflow-hidden">
-          <button @click="showGenerateModal = true" :disabled="store.generating || !isOnline"
+          <button @click="openGenerateModal()" :disabled="store.generating || !isOnline"
             :title="!isOnline ? 'Internetverbindung erforderlich' : ''"
             class="flex sm:flex-initial flex-1 justify-center items-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 px-3 sm:px-4 py-2 font-medium text-white text-sm transition-colors">
             <Sparkles class="w-4 h-4" :class="{ 'animate-pulse': store.generating }" />
@@ -61,24 +61,70 @@
       </div>
     </div>
 
-    <!-- ═══════════════════ WOCHEN-NAVIGATION ═══════════════════ -->
+    <!-- ═══════════════════ NAVIGATION ═══════════════════ -->
     <div class="flex flex-wrap justify-between items-center gap-3">
-      <div class="flex items-center gap-1">
-        <button @click="changeWeek(-1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg transition-colors">
-          <ChevronLeft class="w-5 h-5 text-stone-600 dark:text-stone-400" />
-        </button>
-        <button @click="goToToday"
-          class="bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 px-3 py-1.5 rounded-lg font-medium text-stone-700 dark:text-stone-300 text-sm transition-colors">
-          Heute
-        </button>
-        <button @click="changeWeek(1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg transition-colors">
-          <ChevronRight class="w-5 h-5 text-stone-600 dark:text-stone-400" />
-        </button>
+
+      <!-- Plan-Modus: Plan-Auswahl -->
+      <div v-if="viewMode === 'plan'" class="flex items-center gap-2 flex-1 min-w-0">
+        <div v-if="store.plans.length" class="relative">
+          <button @click="showPlanDropdown = !showPlanDropdown"
+            class="flex items-center gap-2 bg-white dark:bg-stone-800 shadow-sm hover:shadow px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-xl font-medium text-stone-700 dark:text-stone-200 text-sm transition-all max-w-xs">
+            <CalendarDays class="w-4 h-4 text-primary-500 shrink-0" />
+            <span class="truncate">{{ selectedPlanId ? planLabel(store.plans.find(p => p.id === selectedPlanId)) : 'Plan wählen' }}</span>
+            <ChevronDown class="w-3.5 h-3.5 text-stone-400 shrink-0 transition-transform" :class="showPlanDropdown ? 'rotate-180' : ''" />
+          </button>
+          <!-- Backdrop -->
+          <Transition name="fade">
+            <div v-if="showPlanDropdown" class="fixed inset-0 z-30" @click="showPlanDropdown = false" />
+          </Transition>
+          <!-- Dropdown -->
+          <Transition name="fade">
+            <div v-if="showPlanDropdown" class="absolute left-0 top-full mt-1.5 z-30 bg-white dark:bg-stone-800 shadow-xl border border-stone-200 dark:border-stone-700 rounded-xl w-80 max-h-72 overflow-y-auto scrollbar-thin">
+              <div class="p-1.5">
+                <button v-for="p in store.plans" :key="p.id"
+                  @click="onPlanSelect(p.id); showPlanDropdown = false"
+                  class="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors"
+                  :class="selectedPlanId === p.id
+                    ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
+                    : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-200'">
+                  <div class="flex justify-center items-center rounded-lg w-9 h-9 font-bold text-sm shrink-0"
+                    :class="selectedPlanId === p.id
+                      ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400'
+                      : 'bg-stone-100 dark:bg-stone-700 text-stone-500 dark:text-stone-400'">
+                    {{ p.meal_count || 0 }}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="font-medium text-sm truncate">{{ planDateRange(p) }}</div>
+                    <div class="text-xs text-stone-400 dark:text-stone-500">{{ p.meal_count || 0 }} Rezepte · {{ planDaysCount(p) }} Tage</div>
+                  </div>
+                  <Check v-if="selectedPlanId === p.id" class="w-4 h-4 text-primary-500 shrink-0" />
+                </button>
+              </div>
+            </div>
+          </Transition>
+        </div>
+        <span v-else class="text-stone-500 dark:text-stone-400 text-sm">Keine Pläne vorhanden</span>
       </div>
 
-      <span class="font-semibold text-stone-700 dark:text-stone-300 text-sm">
-        {{ weekLabel }}
-      </span>
+      <!-- Wochen/Tag-Modus: Klassische Navigation -->
+      <template v-else>
+        <div class="flex items-center gap-1">
+          <button @click="changeWeek(-1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg transition-colors">
+            <ChevronLeft class="w-5 h-5 text-stone-600 dark:text-stone-400" />
+          </button>
+          <button @click="goToToday"
+            class="bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 px-3 py-1.5 rounded-lg font-medium text-stone-700 dark:text-stone-300 text-sm transition-colors">
+            Heute
+          </button>
+          <button @click="changeWeek(1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg transition-colors">
+            <ChevronRight class="w-5 h-5 text-stone-600 dark:text-stone-400" />
+          </button>
+        </div>
+
+        <span class="font-semibold text-stone-700 dark:text-stone-300 text-sm">
+          {{ weekLabel }}
+        </span>
+      </template>
 
       <!-- Ansicht-Toggle + Slot-Einstellungen -->
       <div class="flex items-center gap-2">
@@ -114,10 +160,13 @@
         </div>
 
         <div class="flex bg-stone-100 dark:bg-stone-800 rounded-lg overflow-hidden">
-          <button @click="viewMode = 'week'" :class="viewToggleClass('week')">
+          <button @click="switchToViewMode('plan')" :class="viewToggleClass('plan')">
+            <List class="w-4 h-4" /> <span class="hidden sm:inline">Plan</span>
+          </button>
+          <button @click="switchToViewMode('week')" :class="viewToggleClass('week')">
             <LayoutGrid class="w-4 h-4" /> <span class="hidden sm:inline">Woche</span>
           </button>
-          <button @click="viewMode = 'day'" :class="viewToggleClass('day')">
+          <button @click="switchToViewMode('day')" :class="viewToggleClass('day')">
             <CalendarDays class="w-4 h-4" /> <span class="hidden sm:inline">Tag</span>
           </button>
         </div>
@@ -230,7 +279,7 @@
     </div>
 
     <!-- Kein Plan -->
-    <div v-else-if="!currentPlan" class="py-16 text-center"
+    <div v-else-if="!currentPlan && viewMode !== 'plan'" class="py-16 text-center"
       @dragover.prevent="suggestionDragData && onDragOverEmpty($event)"
       @dragleave="dragOverEmpty = false"
       @drop.prevent="suggestionDragData && onDropEmpty($event)"
@@ -244,7 +293,7 @@
         Loslassen um einen neuen Wochenplan zu erstellen
       </p>
       <div class="flex flex-wrap justify-center gap-3">
-        <button @click="showGenerateModal = true"
+        <button @click="openGenerateModal()"
           class="bg-primary-600 hover:bg-primary-700 px-6 py-3 rounded-xl font-medium text-white transition-colors">
           <Sparkles class="inline mr-2 w-4 h-4" /> Plan generieren
         </button>
@@ -253,6 +302,282 @@
           <FolderSearch class="inline mr-2 w-4 h-4" /> Plan laden
         </button>
       </div>
+    </div>
+
+    <!-- ═══════════════════ PLAN-ANSICHT ═══════════════════ -->
+    <template v-if="currentPlan && viewMode === 'plan' && planDays.length">
+      <!-- Plan-Info Banner -->
+      <div class="flex items-center gap-3 bg-stone-50 dark:bg-stone-900 px-4 py-3 border border-stone-200 dark:border-stone-700 rounded-xl">
+        <List class="w-5 h-5 text-primary-500 shrink-0" />
+        <div class="flex-1 min-w-0">
+          <span class="font-semibold text-stone-700 dark:text-stone-200 text-sm">
+            {{ currentPlan.start_date && currentPlan.end_date
+              ? new Date(currentPlan.start_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'long' })
+                + ' – '
+                + new Date(currentPlan.end_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'long' })
+              : '' }}
+          </span>
+          <span class="ml-2 text-stone-500 dark:text-stone-400 text-xs">
+            {{ planDays.length }} Tage · {{ currentPlan.entries?.length || 0 }} Rezepte
+          </span>
+        </div>
+        <Lock v-if="isLocked" class="w-4 h-4 text-amber-500 shrink-0" title="Fixiert" />
+        <!-- Toggle: Vergangene Tage -->
+        <button @click="hidePastDays = !hidePastDays"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors shrink-0"
+          :class="hidePastDays
+            ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-600 dark:text-primary-400'
+            : 'bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-700'"
+          :title="hidePastDays ? 'Vergangene Tage einblenden' : 'Vergangene Tage ausblenden'">
+          <EyeOff v-if="hidePastDays" class="w-3.5 h-3.5" />
+          <Eye v-else class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">{{ hidePastDays ? 'Vergangene ausgeblendet' : 'Alle Tage' }}</span>
+        </button>
+      </div>
+
+      <!-- Fixiert-Banner -->
+      <div v-if="isLocked" class="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/50 px-4 py-2.5 border border-amber-200 dark:border-amber-800 rounded-xl">
+        <Lock class="w-4 h-4 text-amber-500 shrink-0" />
+        <p class="flex-1 text-amber-700 dark:text-amber-300 text-sm">
+          <span class="font-medium">Plan fixiert</span> – Bereits eingekauft.
+        </p>
+        <button @click="toggleLockPlan" class="text-amber-600 hover:text-amber-800 dark:hover:text-amber-200 dark:text-amber-400 text-xs underline hover:no-underline shrink-0">
+          Aufheben
+        </button>
+      </div>
+
+      <!-- ═══════ DESKTOP PLAN-ANSICHT ═══════ -->
+      <div class="hidden lg:block space-y-4">
+        <!-- Hinweis wenn alle Tage gefiltert -->
+        <div v-if="filteredPlanDays.length === 0 && planDays.length > 0" class="py-8 text-center">
+          <EyeOff class="mx-auto mb-2 w-8 h-8 text-stone-300 dark:text-stone-600" />
+          <p class="text-stone-500 dark:text-stone-400 text-sm">Alle Tage liegen in der Vergangenheit.</p>
+          <button @click="hidePastDays = false" class="mt-2 text-primary-600 dark:text-primary-400 text-sm underline hover:no-underline">Vergangene Tage einblenden</button>
+        </div>
+
+        <!-- Single-Slot: Horizontales Grid (Tage nebeneinander) -->
+        <div v-if="isSingleSlot && filteredPlanDays.length" class="gap-3 grid grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+          <div v-for="day in filteredPlanDays" :key="'ss-' + day.dateStr"
+            class="flex flex-col"
+            :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
+            <!-- Tag-Header kompakt -->
+            <div class="flex items-center gap-2 mb-1.5 px-1">
+              <div class="flex justify-center items-center rounded-lg w-7 h-7 font-bold text-xs shrink-0"
+                :class="isDateToday(day.dateStr)
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300'">
+                {{ day.dateObj.getDate() }}
+              </div>
+              <div class="min-w-0 leading-tight">
+                <div class="font-medium text-xs" :class="isDateToday(day.dateStr) ? 'text-primary-600 dark:text-primary-400' : 'text-stone-600 dark:text-stone-300'">
+                  {{ day.short }}
+                </div>
+              </div>
+            </div>
+            <!-- Rezeptkarte (einziger Slot) -->
+            <template v-for="mt in mealTypes" :key="mt.id + '-ss-' + day.dateStr">
+              <div v-if="getMealByDate(day.dateStr, mt.id)"
+                class="group flex-1 bg-white dark:bg-stone-800 shadow-sm hover:shadow-md border border-stone-200 dark:border-stone-700 rounded-xl overflow-hidden transition-shadow cursor-pointer"
+                @click="selectMeal(getMealByDate(day.dateStr, mt.id))">
+                <div class="relative aspect-4/3 overflow-hidden">
+                  <img v-if="getMealByDate(day.dateStr, mt.id).image_url"
+                    :src="getMealByDate(day.dateStr, mt.id).image_url"
+                    :alt="getMealByDate(day.dateStr, mt.id).recipe_title"
+                    class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    loading="lazy" />
+                  <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-800 opacity-50 w-full h-full text-4xl">🍽️</div>
+                  <div v-if="getMealByDate(day.dateStr, mt.id).is_cooked"
+                    class="top-1.5 right-1.5 absolute place-items-center grid rounded-full w-6 h-6 bg-accent-500">
+                    <Check class="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <div class="bottom-1.5 left-1.5 absolute flex items-center gap-0.5 bg-black/50 px-1.5 py-0.5 rounded text-[0.6rem] text-white">
+                    <Users class="w-2.5 h-2.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }}
+                  </div>
+                </div>
+                <div class="p-2">
+                  <h4 class="font-medium text-stone-800 dark:text-stone-100 text-xs line-clamp-2 leading-tight">
+                    {{ getMealByDate(day.dateStr, mt.id).recipe_title }}
+                  </h4>
+                </div>
+              </div>
+              <div v-else
+                class="flex-1 flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-6 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl min-h-[120px]">
+                <span class="text-stone-300 dark:text-stone-600 text-xs">{{ mt.icon }} Leer</span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Multi-Slot: Vertikale Tage (Standard) -->
+        <template v-if="!isSingleSlot" v-for="day in filteredPlanDays" :key="day.dateStr">
+          <!-- Tag-Header + Mahlzeiten -->
+          <div class="plan-day-row" :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
+            <!-- Tag-Header -->
+            <div class="flex items-center gap-3 mb-2">
+              <div class="flex justify-center items-center rounded-xl w-10 h-10 font-bold tabular-nums text-lg shrink-0"
+                :class="isDateToday(day.dateStr)
+                  ? 'bg-primary-500 text-white shadow-sm'
+                  : isDatePast(day.dateStr)
+                    ? 'bg-stone-100 dark:bg-stone-800 text-stone-400 dark:text-stone-500'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200'">
+                {{ day.dateObj.getDate() }}
+              </div>
+              <div class="min-w-0 leading-tight">
+                <div class="font-semibold text-sm"
+                  :class="isDateToday(day.dateStr)
+                    ? 'text-primary-600 dark:text-primary-400'
+                    : 'text-stone-700 dark:text-stone-200'">
+                  {{ day.dateObj.toLocaleDateString('de-DE', { weekday: 'long' }) }}
+                </div>
+                <div class="text-xs"
+                  :class="isDateToday(day.dateStr) ? 'text-primary-500/70 dark:text-primary-400/60' : 'text-stone-400 dark:text-stone-500'">
+                  {{ day.dateObj.toLocaleDateString('de-DE', { day: 'numeric', month: 'long' }) }}
+                  <span v-if="isDateToday(day.dateStr)" class="bg-primary-600 ml-1 px-1.5 py-0.5 rounded-full font-medium text-[0.6rem] text-white">Heute</span>
+                </div>
+              </div>
+              <!-- Nährwerte -->
+              <div v-if="getDayNutritionByDate(day.dateStr)" class="ml-auto text-stone-400 dark:text-stone-500 text-xs">
+                🔥 {{ getDayNutritionByDate(day.dateStr).calories }} kcal
+              </div>
+            </div>
+
+            <!-- Mahlzeiten horizontal -->
+            <div class="gap-3 grid grid-cols-2 xl:grid-cols-4 pl-13">
+              <template v-for="mt in mealTypes" :key="mt.id + '-plan-' + day.dateStr">
+                <!-- Gefüllte Karte -->
+                <div v-if="getMealByDate(day.dateStr, mt.id)"
+                  class="group bg-white dark:bg-stone-800 shadow-sm hover:shadow-md border border-stone-200 dark:border-stone-700 rounded-xl overflow-hidden transition-shadow cursor-pointer"
+                  @click="selectMeal(getMealByDate(day.dateStr, mt.id))">
+                  <div class="relative aspect-4/3 overflow-hidden">
+                    <img v-if="getMealByDate(day.dateStr, mt.id).image_url"
+                      :src="getMealByDate(day.dateStr, mt.id).image_url"
+                      :alt="getMealByDate(day.dateStr, mt.id).recipe_title"
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy" />
+                    <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-800 opacity-50 w-full h-full text-5xl">🍽️</div>
+                    <!-- Mahlzeit-Badge -->
+                    <div class="top-1.5 left-1.5 absolute bg-black/50 backdrop-blur-sm px-2 py-0.5 rounded-lg text-[0.65rem] text-white">
+                      {{ mt.icon }} {{ mt.name }}
+                    </div>
+                    <!-- Gekocht-Badge -->
+                    <div v-if="getMealByDate(day.dateStr, mt.id).is_cooked"
+                      class="top-1.5 right-1.5 absolute place-items-center grid rounded-full w-6 h-6 bg-accent-500">
+                      <Check class="w-3.5 h-3.5 text-white" />
+                    </div>
+                    <!-- Portionen -->
+                    <div class="bottom-1.5 left-1.5 absolute flex items-center gap-0.5 bg-black/50 px-1.5 py-0.5 rounded text-[0.6rem] text-white">
+                      <Users class="w-2.5 h-2.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }}
+                    </div>
+                  </div>
+                  <div class="p-2.5">
+                    <h4 class="font-medium text-stone-800 dark:text-stone-100 text-sm line-clamp-2 leading-tight">
+                      {{ getMealByDate(day.dateStr, mt.id).recipe_title }}
+                    </h4>
+                    <div v-if="getMealByDate(day.dateStr, mt.id).total_time" class="flex items-center gap-1 mt-1 text-stone-400 text-xs">
+                      <Clock class="w-3 h-3" /> {{ getMealByDate(day.dateStr, mt.id).total_time }} Min.
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Leerer Slot -->
+                <div v-else
+                  class="flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-6 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl">
+                  <span class="text-stone-300 dark:text-stone-600 text-xs">{{ mt.icon }} {{ mt.name }}</span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ═══════ MOBILE PLAN-ANSICHT ═══════ -->
+      <div class="lg:hidden space-y-3">
+        <!-- Hinweis wenn alle Tage gefiltert -->
+        <div v-if="filteredPlanDays.length === 0 && planDays.length > 0" class="py-8 text-center">
+          <EyeOff class="mx-auto mb-2 w-8 h-8 text-stone-300 dark:text-stone-600" />
+          <p class="text-stone-500 dark:text-stone-400 text-sm">Alle Tage liegen in der Vergangenheit.</p>
+          <button @click="hidePastDays = false" class="mt-2 text-primary-600 dark:text-primary-400 text-sm underline hover:no-underline">Vergangene Tage einblenden</button>
+        </div>
+        <template v-for="day in filteredPlanDays" :key="'plan-mob-' + day.dateStr">
+          <div :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
+            <!-- Tag-Header -->
+            <div :class="[
+              'flex items-center justify-between px-3 py-2 rounded-xl',
+              isDateToday(day.dateStr)
+                ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300'
+                : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+            ]">
+              <div class="flex items-center gap-2">
+                <span class="font-semibold text-sm">{{ day.short }}</span>
+                <span class="opacity-75 text-xs">{{ day.date }}</span>
+              </div>
+              <span v-if="isDateToday(day.dateStr)" class="bg-primary-600 px-2 py-0.5 rounded-full font-medium text-[0.65rem] text-white">Heute</span>
+            </div>
+
+            <!-- Mahlzeiten -->
+            <div class="space-y-2 mt-2">
+              <template v-for="mt in mealTypes" :key="mt.id + '-plan-mob-' + day.dateStr">
+                <div v-if="getMealByDate(day.dateStr, mt.id)"
+                  class="mobile-meal-card"
+                  :class="{ 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked }"
+                  @click="router.push('/recipes/' + getMealByDate(day.dateStr, mt.id).recipe_id)">
+                  <div class="relative aspect-[5/3] overflow-hidden">
+                    <img v-if="getMealByDate(day.dateStr, mt.id).image_url"
+                      :src="getMealByDate(day.dateStr, mt.id).image_url"
+                      :alt="getMealByDate(day.dateStr, mt.id).recipe_title"
+                      class="w-full h-full object-cover" loading="lazy" />
+                    <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-800 w-full h-full">
+                      <UtensilsCrossed class="w-10 h-10 text-stone-300 dark:text-stone-600" />
+                    </div>
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
+                    <div class="top-2.5 left-2.5 absolute bg-black/50 backdrop-blur-sm px-2 py-0.5 rounded-lg font-medium text-white text-xs">
+                      {{ mt.icon }} {{ mt.name }}
+                    </div>
+                    <div v-if="getMealByDate(day.dateStr, mt.id).is_cooked"
+                      class="top-2.5 right-2.5 absolute place-items-center grid rounded-full w-7 h-7 bg-accent-500">
+                      <Check class="w-4 h-4 text-white" />
+                    </div>
+                    <div class="right-2.5 bottom-2.5 left-2.5 absolute flex items-center gap-2">
+                      <span class="flex items-center gap-1 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg text-white text-xs">
+                        <Users class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }}
+                      </span>
+                      <span v-if="getMealByDate(day.dateStr, mt.id).total_time"
+                        class="flex items-center gap-1 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg text-white text-xs">
+                        <Clock class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).total_time }} min
+                      </span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 px-3.5 py-2.5">
+                    <h4 class="flex-1 font-semibold text-stone-800 dark:text-stone-100 text-base leading-snug">
+                      {{ getMealByDate(day.dateStr, mt.id).recipe_title }}
+                    </h4>
+                    <button @click.stop="selectMeal(getMealByDate(day.dateStr, mt.id))"
+                      class="flex justify-center items-center hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg text-stone-400 dark:text-stone-500 transition-colors shrink-0">
+                      <EllipsisVertical class="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Nährwerte (mobile) -->
+              <div v-if="getDayNutritionByDate(day.dateStr)" class="px-2 py-1 text-center">
+                <span class="text-stone-400 dark:text-stone-500 text-xs">
+                  🔥 {{ getDayNutritionByDate(day.dateStr).calories }} kcal · {{ getDayNutritionByDate(day.dateStr).protein }}g E · {{ getDayNutritionByDate(day.dateStr).carbs }}g K · {{ getDayNutritionByDate(day.dateStr).fat }}g F
+                </span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- Kein Plan in Plan-Ansicht -->
+    <div v-else-if="viewMode === 'plan' && !store.loading && !store.generating && (!currentPlan || !planDays.length)" class="py-16 text-center">
+      <div class="mb-4 text-6xl">📋</div>
+      <h2 class="mb-2 font-semibold text-stone-700 dark:text-stone-300 text-xl">Kein Plan vorhanden</h2>
+      <p class="mx-auto mb-6 max-w-md text-stone-500 dark:text-stone-400 text-sm">
+        Erstelle einen Plan über den "Plan generieren" Button oder wechsle zur Wochen-Ansicht.
+      </p>
     </div>
 
     <!-- ═══════════════════ WOCHEN-ANSICHT ═══════════════════ -->
@@ -847,21 +1172,45 @@
               </div>
             </div>
 
-            <!-- Aktive Tage -->
-            <div class="mb-5">
-              <label class="block mb-2 font-medium text-stone-700 dark:text-stone-300 text-sm">Für welche Tage?</label>
-              <div class="flex gap-1.5">
-                <button v-for="(dayLabel, dayIdx) in ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']" :key="dayIdx"
-                  @click="genActiveDays.includes(dayIdx) ? genActiveDays.splice(genActiveDays.indexOf(dayIdx), 1) : genActiveDays.push(dayIdx)"
-                  :class="['flex-1 py-2 rounded-lg text-xs font-semibold transition-colors border',
-                    genActiveDays.includes(dayIdx)
-                      ? 'bg-primary-50 dark:bg-primary-950 border-primary-400 dark:border-primary-700 text-primary-700 dark:text-primary-300'
-                      : 'border-stone-200 dark:border-stone-700 text-stone-400 dark:text-stone-600 hover:bg-stone-50 dark:hover:bg-stone-800']">
-                  {{ dayLabel }}
+            <!-- Zeitraum -->
+            <div class="mb-4">
+              <label class="block mb-2 font-medium text-stone-700 dark:text-stone-300 text-sm">Zeitraum</label>
+              <div class="flex items-center gap-2 mb-2">
+                <div class="flex-1">
+                  <label class="block mb-1 text-stone-500 dark:text-stone-400 text-xs">Von</label>
+                  <input type="date" v-model="genStartDate"
+                    class="bg-white dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg w-full text-stone-800 dark:text-stone-100 text-sm" />
+                </div>
+                <div class="flex-1">
+                  <label class="block mb-1 text-stone-500 dark:text-stone-400 text-xs">Bis</label>
+                  <input type="date" v-model="genEndDate"
+                    class="bg-white dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg w-full text-stone-800 dark:text-stone-100 text-sm" />
+                </div>
+              </div>
+              <!-- Quick-Buttons -->
+              <div class="flex flex-wrap gap-1.5">
+                <button @click="setGenTodayPlus6" type="button"
+                  class="px-2.5 py-1 border border-stone-200 dark:border-stone-700 rounded-lg text-stone-600 dark:text-stone-400 text-xs hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors">
+                  Ab heute (7 Tage)
+                </button>
+                <button @click="setGenThisWeek" type="button"
+                  class="px-2.5 py-1 border border-stone-200 dark:border-stone-700 rounded-lg text-stone-600 dark:text-stone-400 text-xs hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors">
+                  Diese Woche
+                </button>
+                <button @click="setGenNextWeek" type="button"
+                  class="px-2.5 py-1 border border-stone-200 dark:border-stone-700 rounded-lg text-stone-600 dark:text-stone-400 text-xs hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors">
+                  Nächste Woche
+                </button>
+                <button @click="setGenNext14Days" type="button"
+                  class="px-2.5 py-1 border border-stone-200 dark:border-stone-700 rounded-lg text-stone-600 dark:text-stone-400 text-xs hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors">
+                  14 Tage
                 </button>
               </div>
-              <p v-if="genActiveDays.length === 0" class="mt-1 text-amber-600 text-xs">
-                Mindestens ein Tag sollte aktiv sein
+              <p v-if="genStartDate && genEndDate && genDateRangeValid" class="mt-1.5 text-stone-500 dark:text-stone-400 text-xs">
+                {{ genDateRangeDays }} Tag{{ genDateRangeDays !== 1 ? 'e' : '' }}
+              </p>
+              <p v-if="genStartDate && genEndDate && !genDateRangeValid" class="mt-1.5 text-amber-600 text-xs">
+                {{ daysBetween(genStartDate, genEndDate) < 0 ? 'Startdatum muss vor Enddatum liegen' : 'Maximal 28 Tage erlaubt' }}
               </p>
             </div>
 
@@ -890,7 +1239,7 @@
                 class="hover:bg-stone-100 dark:hover:bg-stone-800 px-4 py-2 rounded-xl text-stone-600 dark:text-stone-400 text-sm transition-colors">
                 Abbrechen
               </button>
-              <button @click="doGenerate" :disabled="store.generating || !genMealTypes.length || !genActiveDays.length"
+              <button @click="doGenerate" :disabled="store.generating || !genMealTypes.length || !genDateRangeValid"
                 class="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 px-4 py-2 rounded-xl font-medium text-white text-sm transition-colors">
                 <Sparkles class="w-4 h-4" /> Generieren
               </button>
@@ -1523,7 +1872,7 @@ import {
   X, Clock, ChefHat, UtensilsCrossed, Plus, Minus, Star, Trash2,
   LayoutGrid, CalendarDays, Settings, Settings2, FolderOpen, Info,
   Ban, ShieldOff, Lock, Unlock, Users, ChevronDown, FolderSearch, EllipsisVertical, Search, Flame, RotateCcw, Home,
-  ArrowRightLeft, Replace, Move, Trash,
+  ArrowRightLeft, Replace, Move, Trash, List, EyeOff,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -1544,7 +1893,10 @@ const { isOnline } = useNetworkStatus();
 
 // ─── State ───
 const weekOffset = ref(0);
-const viewMode = ref('week');
+const VIEW_MODE_KEY = 'mealplan-view-mode';
+const viewMode = ref((() => {
+  try { return localStorage.getItem(VIEW_MODE_KEY) || 'plan'; } catch { return 'plan'; }
+})());
 const selectedDayIdx = ref(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1); // heute
 const selectedMeal = ref(null);
 const showGenerateModal = ref(false);
@@ -1584,6 +1936,229 @@ const genActiveDays = ref(savedPrefs.activeDays ?? [0, 1, 2, 3, 4, 5, 6]);
 const showSlotSettings = ref(false);
 const showPastDays = ref(false);
 const reasoningCollapsed = ref(true);
+
+// ─── Datums-Hilfsfunktionen ───
+function formatDateLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function addDays(dateStr, n) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d, 12, 0, 0); // T12:00 to avoid timezone shift
+  dt.setDate(dt.getDate() + n);
+  return formatDateLocal(dt);
+}
+function getMondayOfWeek(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d, 12, 0, 0);
+  const day = dt.getDay();
+  dt.setDate(dt.getDate() - day + (day === 0 ? -6 : 1));
+  return formatDateLocal(dt);
+}
+function daysBetween(a, b) {
+  const [ay, am, ad] = a.split('-').map(Number);
+  const [by, bm, bd] = b.split('-').map(Number);
+  const da = new Date(ay, am - 1, ad, 12, 0, 0);
+  const db = new Date(by, bm - 1, bd, 12, 0, 0);
+  return Math.round((db - da) / 86400000);
+}
+
+// ─── Generierungs-Datumsbereich ───
+const genStartDate = ref(formatDateLocal(new Date()));
+const genEndDate = ref(addDays(formatDateLocal(new Date()), 6));
+
+/** Generierungs-Datumsbereich-Validation */
+const genDateRangeValid = computed(() => {
+  if (!genStartDate.value || !genEndDate.value) return false;
+  const diff = daysBetween(genStartDate.value, genEndDate.value);
+  return diff >= 0 && diff <= 27; // max 28 Tage (0-27 = 28 Tage)
+});
+const genDateRangeDays = computed(() => {
+  if (!genStartDate.value || !genEndDate.value) return 0;
+  return daysBetween(genStartDate.value, genEndDate.value) + 1;
+});
+
+/** Modal öffnen mit frischen Defaults */
+function openGenerateModal() {
+  genStartDate.value = formatDateLocal(new Date());
+  genEndDate.value = addDays(formatDateLocal(new Date()), 6);
+  showGenerateModal.value = true;
+}
+
+/** Quick-Button Helfer */
+function setGenThisWeek() {
+  const today = formatDateLocal(new Date());
+  const monday = getMondayOfWeek(today);
+  genStartDate.value = monday;
+  genEndDate.value = addDays(monday, 6);
+}
+function setGenNextWeek() {
+  const today = formatDateLocal(new Date());
+  const monday = getMondayOfWeek(today);
+  const nextMonday = addDays(monday, 7);
+  genStartDate.value = nextMonday;
+  genEndDate.value = addDays(nextMonday, 6);
+}
+function setGenNext14Days() {
+  genStartDate.value = formatDateLocal(new Date());
+  genEndDate.value = addDays(formatDateLocal(new Date()), 13);
+}
+function setGenTodayPlus6() {
+  genStartDate.value = formatDateLocal(new Date());
+  genEndDate.value = addDays(formatDateLocal(new Date()), 6);
+}
+
+// ─── Plan-Ansicht State ───
+const selectedPlanId = ref(null);
+const hidePastDays = ref(true); // Vergangene Tage standardmäßig ausblenden
+const showPlanDropdown = ref(false);
+
+/** Tage des aktuellen Plans (für Plan-Ansicht) */
+const planDays = computed(() => {
+  if (viewMode.value !== 'plan' || !currentPlan.value) return [];
+  const startDate = currentPlan.value.start_date;
+  const endDate = currentPlan.value.end_date;
+  if (!startDate || !endDate) return [];
+
+  const days = [];
+  let current = startDate;
+  while (current <= endDate) {
+    const [y, m, d] = current.split('-').map(Number);
+    const dt = new Date(y, m - 1, d, 12, 0, 0);
+    days.push({
+      dateStr: current,
+      short: dt.toLocaleDateString('de-DE', { weekday: 'short' }),
+      date: dt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
+      fullDate: dt.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }),
+      dateObj: dt,
+    });
+    current = addDays(current, 1);
+  }
+  return days;
+});
+
+/** Gefilterte Tage (vergangene optional ausblenden) */
+const filteredPlanDays = computed(() => {
+  if (!hidePastDays.value) return planDays.value;
+  const today = formatDateLocal(new Date());
+  return planDays.value.filter(d => d.dateStr >= today);
+});
+
+/** Nur ein sichtbarer Slot → horizontales Layout (wie Wochenansicht) */
+const isSingleSlot = computed(() => mealTypes.value.length === 1);
+function planLabel(plan) {
+  if (!plan) return '';
+  const start = plan.start_date || plan.week_start;
+  const end = plan.end_date;
+  if (start && end) {
+    const [sy, sm, sd] = start.split('-').map(Number);
+    const [ey, em, ed] = end.split('-').map(Number);
+    const startDt = new Date(sy, sm - 1, sd, 12, 0, 0);
+    const endDt = new Date(ey, em - 1, ed, 12, 0, 0);
+    const s = startDt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    const e = endDt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    return `${s} – ${e} (${plan.meal_count || 0} Rezepte)`;
+  }
+  return start || 'Plan';
+}
+
+function planDateRange(plan) {
+  if (!plan) return '';
+  const start = plan.start_date || plan.week_start;
+  const end = plan.end_date;
+  if (start && end) {
+    const [sy, sm, sd] = start.split('-').map(Number);
+    const [ey, em, ed] = end.split('-').map(Number);
+    const startDt = new Date(sy, sm - 1, sd, 12, 0, 0);
+    const endDt = new Date(ey, em - 1, ed, 12, 0, 0);
+    const s = startDt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    const e = endDt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    return `${s} – ${e}`;
+  }
+  return start || 'Plan';
+}
+
+function planDaysCount(plan) {
+  if (!plan) return 0;
+  const start = plan.start_date || plan.week_start;
+  const end = plan.end_date;
+  if (!start || !end) return 0;
+  const [sy, sm, sd] = start.split('-').map(Number);
+  const [ey, em, ed] = end.split('-').map(Number);
+  const startDt = new Date(sy, sm - 1, sd, 12, 0, 0);
+  const endDt = new Date(ey, em - 1, ed, 12, 0, 0);
+  return Math.round((endDt - startDt) / (1000 * 60 * 60 * 24)) + 1;
+}
+
+function getMealByDate(dateStr, categoryId) {
+  if (!currentPlan.value?.entries) return null;
+  return currentPlan.value.entries.find(e => e.plan_date === dateStr && e.category_id === categoryId);
+}
+
+function dayHasMealsByDate(dateStr) {
+  if (!currentPlan.value?.entries) return false;
+  return currentPlan.value.entries.some(e => e.plan_date === dateStr);
+}
+
+function isDateToday(dateStr) {
+  return dateStr === formatDateLocal(new Date());
+}
+
+function isDatePast(dateStr) {
+  return dateStr < formatDateLocal(new Date());
+}
+
+function getDayNutritionByDate(dateStr) {
+  if (!currentPlan.value?.entries) return null;
+  const dayEntries = currentPlan.value.entries.filter(e => e.plan_date === dateStr);
+  if (!dayEntries.length) return null;
+  let hasAny = false;
+  let totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  for (const entry of dayEntries) {
+    if (!entry.calories) continue;
+    hasAny = true;
+    const factor = (entry.servings || entry.original_servings || 1) / (entry.original_servings || 1);
+    totals.calories += Math.round((entry.calories || 0) * factor);
+    totals.protein += Math.round((entry.protein || 0) * factor * 10) / 10;
+    totals.carbs += Math.round((entry.carbs || 0) * factor * 10) / 10;
+    totals.fat += Math.round((entry.fat || 0) * factor * 10) / 10;
+  }
+  if (!hasAny) return null;
+  return {
+    calories: Math.round(totals.calories),
+    protein: Math.round(totals.protein),
+    carbs: Math.round(totals.carbs),
+    fat: Math.round(totals.fat),
+  };
+}
+
+/** Ansichtsmodus wechseln */
+async function switchToViewMode(mode) {
+  viewMode.value = mode;
+  try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch {}
+  if (mode === 'plan') {
+    // Pläne laden falls nötig
+    if (!store.plans.length) {
+      await store.fetchPlans();
+    }
+    // Wenn kein Plan ausgewählt → neuesten Plan wählen
+    if (!selectedPlanId.value && store.plans.length) {
+      selectedPlanId.value = store.plans[0].id;
+    }
+    // Plan laden
+    if (selectedPlanId.value) {
+      await store.fetchPlanById(selectedPlanId.value);
+    }
+  }
+}
+
+/** Plan aus Dropdown wechseln */
+async function onPlanSelect(planId) {
+  selectedPlanId.value = planId;
+  await store.fetchPlanById(planId);
+}
 
 // Rezept-Vorschläge aus dem Haushalt
 const suggestions = ref([]);
@@ -1916,11 +2491,11 @@ async function executeGenerate() {
   showGenerateModal.value = false;
   try {
     const options = {
-      weekStart: currentWeekStart.value,
+      startDate: genStartDate.value,
+      endDate: genEndDate.value,
       categoryIds: genMealTypes.value,
       personCount: genPersons.value,
       enableAiReasoning: genAiReasoning.value,
-      activeDays: genActiveDays.value,
     };
     // Sammlungs-Filter nur wenn explizit Sammlungen gewählt
     if (genSourceMode.value === 'collections' && genCollectionIds.value.length > 0) {
@@ -1938,11 +2513,25 @@ async function executeGenerate() {
       options.calorieStrictness = calorieStrictness.value;
     }
     const data = await store.generatePlan(options);
-    let msg = 'Wochenplan erstellt! 🗓️';
+    let msg = 'Plan erstellt! 🗓️';
     if (data.nutritionEstimatedCount > 0) {
       msg += ` (${data.nutritionEstimatedCount} Rezepte mit Nährwerten ergänzt)`;
     }
     showSuccess(msg);
+
+    // Nach Generierung: zum generierten Plan navigieren
+    if (viewMode.value === 'plan' && data.planId) {
+      // Plan-Ansicht: zum neuen Plan wechseln
+      selectedPlanId.value = data.planId;
+      await store.fetchPlanById(data.planId);
+      await store.fetchPlans(); // Plan-Liste aktualisieren
+    } else {
+      // Wochen-Ansicht: zur Startwoche navigieren
+      const planStart = genStartDate.value;
+      const monday = getMondayOfWeek(planStart);
+      viewMode.value = 'week';
+      navigateToWeek(monday);
+    }
 
     // KI-Reasoning im Hintergrund polled (blockiert UI nicht)
     if (genAiReasoning.value && data.planId) {
@@ -2332,6 +2921,14 @@ onMounted(async () => {
   blocksStore.fetchBlocks();
   fetchSuggestions();
   store.fetchLastWeekRecipes();
+  // Wenn Plan-Modus aktiv → Pläne laden
+  if (viewMode.value === 'plan') {
+    await store.fetchPlans();
+    if (store.plans.length && !selectedPlanId.value) {
+      selectedPlanId.value = store.plans[0].id;
+      await store.fetchPlanById(selectedPlanId.value);
+    }
+  }
 });
 </script>
 

@@ -8,7 +8,7 @@
 
 import db from '../config/database.js';
 import { householdWhereClause, getMealTimeCategories, getCategoryForUser } from '../config/database.js';
-import { generateWeekPlan, generateReasoning, saveMealPlan, getMealPlan, getSuggestions } from '../services/meal-planner.js';
+import { generateWeekPlan, generateReasoning, saveMealPlan, getMealPlan, getMealPlanById, getEntriesByDateRange, getSuggestions, addDays, formatDateLocal } from '../services/meal-planner.js';
 import { getWeekStart, scaleIngredient, convertToBaseUnit, normalizeUnit, unitsCompatible, comparePantryAmount } from '../utils/helpers.js';
 import { broadcastToHousehold } from './household-events.js';
 import { getSetting } from '../config/settings.js';
@@ -67,11 +67,11 @@ export default async function mealplanRoutes(fastify) {
   fastify.addHook('onRequest', fastify.resolveHousehold);
 
   // ─────────────────────────────────────────────
-  // POST /generate – Wochenplan generieren
+  // POST /generate – Plan generieren (Datumsbereiche)
   // ─────────────────────────────────────────────
   fastify.post('/generate', {
     schema: {
-      description: 'Wochenplan generieren (Algorithmus + optionales KI-Reasoning)',
+      description: 'Essensplan generieren (Algorithmus + optionales KI-Reasoning). Unterstützt beliebige Datumsbereiche.',
       tags: ['Wochenplan'],
       security: [{ bearerAuth: [] }],
       body: {
@@ -83,7 +83,9 @@ export default async function mealplanRoutes(fastify) {
             items: { type: 'integer' },
             description: 'IDs der Tageszeit-Kategorien für die Planung (is_meal_time=1)',
           },
-          weekStart: { type: 'string', format: 'date' },
+          startDate: { type: 'string', format: 'date', description: 'Startdatum YYYY-MM-DD (bevorzugt)' },
+          endDate: { type: 'string', format: 'date', description: 'Enddatum YYYY-MM-DD (bevorzugt)' },
+          weekStart: { type: 'string', format: 'date', description: 'LEGACY: Wochenstart (Montag). Wird zu startDate/endDate konvertiert.' },
           excludeRecipeIds: { type: 'array', items: { type: 'integer' } },
           collectionIds: {
             type: 'array',
@@ -105,7 +107,7 @@ export default async function mealplanRoutes(fastify) {
             type: 'array',
             items: { type: 'integer', minimum: 0, maximum: 6 },
             default: [0, 1, 2, 3, 4, 5, 6],
-            description: 'Für welche Wochentage Gerichte generiert werden (0=Mo...6=So)',
+            description: 'LEGACY: Für welche Wochentage Gerichte generiert werden (0=Mo...6=So)',
           },
           calorieTarget: {
             type: 'integer',
@@ -136,7 +138,27 @@ export default async function mealplanRoutes(fastify) {
     try {
       const userId = request.user.id;
       const householdId = request.householdId;
-      const weekStart = request.body?.weekStart || getWeekStart();
+
+      // --- Datumsbereiche bestimmen (neu oder Legacy) ---
+      let startDate, endDate;
+      if (request.body?.startDate && request.body?.endDate) {
+        // Neuer Modus: explizite Datumsbereiche
+        startDate = request.body.startDate;
+        endDate = request.body.endDate;
+        // Validierung: endDate >= startDate
+        if (endDate < startDate) {
+          return reply.status(400).send({ error: 'Enddatum muss nach oder am Startdatum liegen.' });
+        }
+        // Maximale Planungsdauer: 28 Tage
+        const dayCount = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
+        if (dayCount > 28) {
+          return reply.status(400).send({ error: `Maximale Planungsdauer ist 28 Tage (angefragt: ${dayCount}).` });
+        }
+      } else {
+        // Legacy-Modus: weekStart → startDate/endDate ableiten
+        startDate = request.body?.weekStart || getWeekStart();
+        endDate = addDays(startDate, 6);
+      }
 
       // Tageszeit-Kategorien auflösen
       const allMealTimeCategories = getMealTimeCategories(userId, householdId);
@@ -155,23 +177,39 @@ export default async function mealplanRoutes(fastify) {
           : allMealTimeCategories;
       }
 
-      const options = { ...request.body, weekStart, householdId, mealCategories: categories };
+      const options = {
+        ...request.body,
+        startDate,
+        endDate,
+        householdId,
+        mealCategories: categories,
+      };
 
-      // Bestehenden Plan für diese Woche löschen
+      // --- Overlap-Handling: bestehende Entries für den Zeitraum löschen ---
       const hhWhere = householdWhereClause(userId, householdId, 'mp');
-      const existing = db.prepare(`SELECT mp.id FROM meal_plans mp WHERE (${hhWhere.clause}) AND mp.week_start = ?`).get(...hhWhere.params, weekStart);
-      if (existing) {
-        db.prepare('DELETE FROM meal_plans WHERE id = ?').run(existing.id);
-      }
+      db.prepare(`
+        DELETE FROM meal_plan_entries WHERE id IN (
+          SELECT mpe.id FROM meal_plan_entries mpe
+          JOIN meal_plans mp ON mpe.meal_plan_id = mp.id
+          WHERE (${hhWhere.clause}) AND mpe.plan_date BETWEEN ? AND ?
+        )
+      `).run(...hhWhere.params, startDate, endDate);
+
+      // Verwaiste Pläne aufräumen (Pläne ohne Entries)
+      db.prepare(`
+        DELETE FROM meal_plans WHERE id IN (
+          SELECT mp.id FROM meal_plans mp
+          LEFT JOIN meal_plan_entries mpe ON mp.id = mpe.meal_plan_id
+          WHERE (${hhWhere.clause}) AND mpe.id IS NULL
+        )
+      `).run(...hhWhere.params);
 
       const planData = await generateWeekPlan(userId, options);
-      const planId = saveMealPlan(userId, weekStart, planData, householdId);
-
-      // Wenn nicht alle Tage aktiv sind, Lock-relevante Info speichern
-      // (Plan wurde bewusst nur für bestimmte Tage erstellt)
+      const planId = saveMealPlan(userId, startDate, endDate, planData, householdId);
 
       // Gespeicherten Plan mit vollständigen Entries zurückgeben
-      const savedPlan = getMealPlan(userId, weekStart, householdId);
+      // (getMealPlan sucht per week_start = startDate, da saveMealPlan week_start = startDate setzt)
+      const savedPlan = getMealPlan(userId, startDate, householdId);
 
       // KI-Reasoning async im Hintergrund starten (blockiert Antwort nicht)
       if (options.enableAiReasoning) {
@@ -183,12 +221,14 @@ export default async function mealplanRoutes(fastify) {
         });
       }
 
-      broadcastToHousehold(householdId, 'mealplan:generated', { week_start: weekStart }, userId);
+      broadcastToHousehold(householdId, 'mealplan:generated', { start_date: startDate, end_date: endDate, week_start: startDate }, userId);
       return {
         planId,
         plan: savedPlan,
+        startDate,
+        endDate,
         nutritionEstimatedCount: planData.nutritionEstimatedCount || 0,
-        message: 'Wochenplan erfolgreich generiert!',
+        message: 'Plan erfolgreich generiert!',
       };
     } catch (error) {
       return reply.status(400).send({ error: error.message });
@@ -220,24 +260,80 @@ export default async function mealplanRoutes(fastify) {
   });
 
   // ─────────────────────────────────────────────
-  // GET / – Wochenplan abrufen
+  // GET / – Wochenplan abrufen (per planId, Datumsbereich oder weekStart)
   // ─────────────────────────────────────────────
   fastify.get('/', {
     schema: {
-      description: 'Wochenplan abrufen',
+      description: 'Wochenplan abrufen per planId, Datumsbereich oder weekStart (Legacy)',
       tags: ['Wochenplan'],
       security: [{ bearerAuth: [] }],
       querystring: {
         type: 'object',
         properties: {
-          weekStart: { type: 'string', format: 'date' },
+          planId: { type: 'integer', description: 'Plan-ID direkt laden' },
+          startDate: { type: 'string', format: 'date', description: 'Startdatum (inklusiv)' },
+          endDate: { type: 'string', format: 'date', description: 'Enddatum (inklusiv)' },
+          weekStart: { type: 'string', format: 'date', description: 'Legacy: Wochenstart' },
         },
       },
     },
   }, async (request) => {
-    const weekStart = request.query.weekStart || getWeekStart();
-    const plan = getMealPlan(request.user.id, weekStart, request.householdId);
+    const { planId, startDate, endDate, weekStart } = request.query;
+    const userId = request.user.id;
+    const householdId = request.householdId;
+
+    // Modus 1: Plan per ID laden
+    if (planId) {
+      const plan = getMealPlanById(userId, planId, householdId);
+      return { plan: plan || null };
+    }
+
+    // Modus 2: Entries per Datumsbereich laden (plan-übergreifend)
+    if (startDate && endDate) {
+      const result = getEntriesByDateRange(userId, startDate, endDate, householdId);
+      return { entries: result.entries, plans: result.plans, startDate, endDate };
+    }
+
+    // Modus 3: Legacy per weekStart
+    const ws = weekStart || getWeekStart();
+    const plan = getMealPlan(userId, ws, householdId);
     return { plan: plan || null };
+  });
+
+  // ─────────────────────────────────────────────
+  // GET /plans – Alle Pläne mit Metadaten (für Plan-Dropdown)
+  // ─────────────────────────────────────────────
+  fastify.get('/plans', {
+    schema: {
+      description: 'Alle Pläne mit Metadaten (id, start_date, end_date, meal_count)',
+      tags: ['Wochenplan'],
+      security: [{ bearerAuth: [] }],
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+        },
+      },
+    },
+  }, async (request) => {
+    const userId = request.user.id;
+    const householdId = request.householdId;
+    const limit = request.query.limit || 20;
+    const hhWhere = householdWhereClause(userId, householdId, 'mp');
+
+    const plans = db.prepare(`
+      SELECT mp.id, mp.week_start, mp.start_date, mp.end_date, mp.is_locked, mp.created_at,
+             COUNT(mpe.id) as meal_count
+      FROM meal_plans mp
+      LEFT JOIN meal_plan_entries mpe ON mp.id = mpe.meal_plan_id
+      WHERE (${hhWhere.clause})
+      GROUP BY mp.id
+      HAVING meal_count > 0
+      ORDER BY COALESCE(mp.start_date, mp.week_start) DESC
+      LIMIT ?
+    `).all(...hhWhere.params, limit);
+
+    return { plans };
   });
 
   // ─────────────────────────────────────────────
@@ -253,7 +349,7 @@ export default async function mealplanRoutes(fastify) {
       LEFT JOIN meal_plan_entries mpe ON mp.id = mpe.meal_plan_id
       WHERE (${hhWhere.clause})
       GROUP BY mp.id
-      ORDER BY mp.week_start DESC
+      ORDER BY COALESCE(mp.start_date, mp.week_start) DESC
       LIMIT 20
     `).all(...hhWhere.params);
     return { plans };
@@ -267,13 +363,13 @@ export default async function mealplanRoutes(fastify) {
   }, async (request) => {
     const hhWhere = householdWhereClause(request.user.id, request.householdId, 'mp');
     const plans = db.prepare(`
-      SELECT mp.id, mp.week_start, mp.is_locked, COUNT(mpe.id) as meal_count
+      SELECT mp.id, mp.week_start, mp.start_date, mp.end_date, mp.is_locked, COUNT(mpe.id) as meal_count
       FROM meal_plans mp
       LEFT JOIN meal_plan_entries mpe ON mp.id = mpe.meal_plan_id
       WHERE (${hhWhere.clause})
       GROUP BY mp.id
       HAVING meal_count > 0
-      ORDER BY mp.week_start DESC
+      ORDER BY COALESCE(mp.start_date, mp.week_start) DESC
     `).all(...hhWhere.params);
 
     // Alle Rezepte für diese Pläne in einem Query laden
@@ -309,6 +405,8 @@ export default async function mealplanRoutes(fastify) {
     const weeks = plans.map(p => ({
       id: p.id,
       week_start: p.week_start,
+      start_date: p.start_date || p.week_start,
+      end_date: p.end_date || addDays(p.week_start, 6),
       is_locked: !!p.is_locked,
       meal_count: p.meal_count,
       has_shopping_list: planIdsWithList.has(p.id),
@@ -323,7 +421,7 @@ export default async function mealplanRoutes(fastify) {
   // ─────────────────────────────────────────────
   fastify.post('/:planId/duplicate', {
     schema: {
-      description: 'Wochenplan auf eine andere Woche kopieren',
+      description: 'Wochenplan auf einen anderen Zeitraum kopieren',
       tags: ['Wochenplan'],
       security: [{ bearerAuth: [] }],
       params: {
@@ -335,7 +433,7 @@ export default async function mealplanRoutes(fastify) {
         type: 'object',
         required: ['targetWeekStart'],
         properties: {
-          targetWeekStart: { type: 'string', format: 'date', description: 'Zielwoche (Montag als YYYY-MM-DD)' },
+          targetWeekStart: { type: 'string', format: 'date', description: 'Zielwoche (Montag als YYYY-MM-DD) oder Startdatum' },
         },
       },
     },
@@ -346,12 +444,17 @@ export default async function mealplanRoutes(fastify) {
     const householdId = request.householdId;
     const hhWhere = householdWhereClause(userId, householdId, 'mp');
 
-    // Quellplan prüfen
-    const sourcePlan = db.prepare(`SELECT mp.id FROM meal_plans mp WHERE mp.id = ? AND (${hhWhere.clause})`).get(planId, ...hhWhere.params);
+    // Quellplan prüfen (mit start_date/end_date laden)
+    const sourcePlan = db.prepare(`SELECT mp.id, mp.start_date, mp.end_date, mp.week_start FROM meal_plans mp WHERE mp.id = ? AND (${hhWhere.clause})`).get(planId, ...hhWhere.params);
     if (!sourcePlan) return reply.status(404).send({ error: 'Quellplan nicht gefunden' });
 
     // Quell-Einträge laden
     const sourceEntries = db.prepare('SELECT * FROM meal_plan_entries WHERE meal_plan_id = ?').all(sourcePlan.id);
+
+    // Tage-Offset berechnen: Differenz zwischen Quell-Startdatum und Ziel-Startdatum
+    const sourceStart = sourcePlan.start_date || sourcePlan.week_start;
+    const daysDiff = Math.round((new Date(targetWeekStart + 'T12:00:00') - new Date(sourceStart + 'T12:00:00')) / 86400000);
+    const targetEndDate = sourcePlan.end_date ? addDays(sourcePlan.end_date, daysDiff) : addDays(targetWeekStart, 6);
 
     // Bestehenden Plan für die Zielwoche löschen (falls vorhanden)
     const existing = db.prepare(`SELECT mp.id FROM meal_plans mp WHERE (${hhWhere.clause}) AND mp.week_start = ?`).get(...hhWhere.params, targetWeekStart);
@@ -361,24 +464,30 @@ export default async function mealplanRoutes(fastify) {
 
     // Neuen Plan erstellen und Einträge kopieren
     const transaction = db.transaction(() => {
-      const { lastInsertRowid } = db.prepare('INSERT INTO meal_plans (user_id, week_start, household_id) VALUES (?, ?, ?)').run(userId, targetWeekStart, householdId || null);
+      const { lastInsertRowid } = db.prepare(
+        'INSERT INTO meal_plans (user_id, week_start, start_date, end_date, household_id) VALUES (?, ?, ?, ?, ?)'
+      ).run(userId, targetWeekStart, targetWeekStart, targetEndDate, householdId || null);
       const newPlanId = Number(lastInsertRowid);
 
       const insertEntry = db.prepare(
-        'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
       for (const entry of sourceEntries) {
-        insertEntry.run(newPlanId, entry.recipe_id, entry.day_of_week, entry.meal_type, entry.category_id, entry.servings);
+        // plan_date verschieben: altes Datum + daysDiff, oder aus day_of_week + targetWeekStart berechnen
+        const newPlanDate = entry.plan_date
+          ? addDays(entry.plan_date, daysDiff)
+          : addDays(targetWeekStart, entry.day_of_week);
+        insertEntry.run(newPlanId, entry.recipe_id, entry.day_of_week, newPlanDate, entry.meal_type, entry.category_id, entry.servings);
       }
 
       return newPlanId;
     });
 
     const newPlanId = transaction();
-    const savedPlan = getMealPlan(userId, targetWeekStart, householdId);
+    const savedPlan = getMealPlanById(userId, newPlanId, householdId);
 
     return {
-      message: `Plan mit ${sourceEntries.length} Einträgen auf KW ${targetWeekStart} kopiert!`,
+      message: `Plan mit ${sourceEntries.length} Einträgen auf ${targetWeekStart} kopiert!`,
       planId: newPlanId,
       plan: savedPlan,
     };
@@ -504,15 +613,19 @@ export default async function mealplanRoutes(fastify) {
           day_of_week: { type: 'integer', minimum: 0, maximum: 6 },
           category_id: { type: 'integer', description: 'Tageszeit-Kategorie (is_meal_time=1)' },
           week_start: { type: 'string', format: 'date' },
+          plan_date: { type: 'string', format: 'date', description: 'Konkretes Datum (bevorzugt)' },
           servings: { type: 'integer', minimum: 1 },
         },
       },
     },
   }, async (request, reply) => {
-    const { recipe_id, day_of_week, category_id, week_start, servings: requestedServings } = request.body;
+    const { recipe_id, day_of_week, category_id, week_start, plan_date, servings: requestedServings } = request.body;
     const userId = request.user.id;
     const householdId = request.householdId;
     const hhWhere = householdWhereClause(userId, householdId, 'r');
+
+    // plan_date ableiten: explizit übergeben → nutzen, sonst aus week_start + day_of_week berechnen
+    const effectivePlanDate = plan_date || addDays(week_start, day_of_week);
 
     // Kategorie prüfen (muss is_meal_time=1 sein und dem User/Haushalt gehören)
     const mealCat = getCategoryForUser(category_id, userId, householdId, true);
@@ -538,21 +651,26 @@ export default async function mealplanRoutes(fastify) {
     // Prüfen ob Slot bereits belegt → ersetzen statt blockieren
     let entryId;
     let replaced = false;
-    const existing = db.prepare(
-      'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ?'
-    ).get(plan.id, day_of_week, category_id);
+    // Bevorzugt per plan_date + category_id suchen, Fallback auf day_of_week + category_id
+    const existing = effectivePlanDate
+      ? db.prepare(
+          'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND plan_date = ? AND category_id = ?'
+        ).get(plan.id, effectivePlanDate, category_id)
+      : db.prepare(
+          'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ? AND plan_date IS NULL'
+        ).get(plan.id, day_of_week, category_id);
 
     if (existing) {
       // Bestehendes Rezept durch neues ersetzen
-      db.prepare('UPDATE meal_plan_entries SET recipe_id = ?, servings = ?, is_cooked = 0 WHERE id = ?')
-        .run(recipe_id, servings, existing.id);
+      db.prepare('UPDATE meal_plan_entries SET recipe_id = ?, servings = ?, plan_date = ?, is_cooked = 0 WHERE id = ?')
+        .run(recipe_id, servings, effectivePlanDate, existing.id);
       entryId = existing.id;
       replaced = true;
     } else {
       // Neuen Eintrag erstellen
       const { lastInsertRowid } = db.prepare(
-        'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(plan.id, recipe_id, day_of_week, mealCat.name, category_id, servings);
+        'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(plan.id, recipe_id, day_of_week, effectivePlanDate, mealCat.name, category_id, servings);
       entryId = Number(lastInsertRowid);
     }
 
@@ -633,19 +751,23 @@ export default async function mealplanRoutes(fastify) {
           recipe_id: { type: 'integer' },
           day_of_week: { type: 'integer', minimum: 0, maximum: 6 },
           category_id: { type: 'integer', description: 'Tageszeit-Kategorie (is_meal_time=1)' },
+          plan_date: { type: 'string', format: 'date', description: 'Konkretes Datum (bevorzugt)' },
           servings: { type: 'integer', minimum: 1 },
         },
       },
     },
   }, async (request, reply) => {
-    const { recipe_id, day_of_week, category_id, servings: requestedServings } = request.body;
+    const { recipe_id, day_of_week, category_id, plan_date, servings: requestedServings } = request.body;
     const { planId } = request.params;
     const userId = request.user.id;
     const householdId = request.householdId;
     const hhWhere = householdWhereClause(userId, householdId);
 
-    const plan = db.prepare(`SELECT id FROM meal_plans WHERE id = ? AND (${hhWhere.clause})`).get(planId, ...hhWhere.params);
+    const plan = db.prepare(`SELECT id, week_start FROM meal_plans WHERE id = ? AND (${hhWhere.clause})`).get(planId, ...hhWhere.params);
     if (!plan) return reply.status(404).send({ error: 'Plan nicht gefunden' });
+
+    // plan_date ableiten: explizit → nutzen, sonst aus week_start + day_of_week
+    const effectivePlanDate = plan_date || (plan.week_start ? addDays(plan.week_start, day_of_week) : null);
 
     // Kategorie prüfen
     const mealCat = getCategoryForUser(category_id, userId, householdId, true);
@@ -659,14 +781,18 @@ export default async function mealplanRoutes(fastify) {
     const servings = requestedServings || recipe.servings || 4;
 
     // Prüfen ob Slot schon belegt ist
-    const existing = db.prepare(
-      'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ?'
-    ).get(planId, day_of_week, category_id);
+    const existing = effectivePlanDate
+      ? db.prepare(
+          'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND plan_date = ? AND category_id = ? '
+        ).get(planId, effectivePlanDate, category_id)
+      : db.prepare(
+          'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ?'
+        ).get(planId, day_of_week, category_id);
     if (existing) return reply.status(409).send({ error: 'Dieser Slot ist bereits belegt' });
 
     const { lastInsertRowid } = db.prepare(
-      'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(planId, recipe_id, day_of_week, mealCat.name, category_id, servings);
+      'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(planId, recipe_id, day_of_week, effectivePlanDate, mealCat.name, category_id, servings);
 
     const entry = db.prepare(`
       SELECT mpe.*, mcat.name as category_name, mcat.icon as category_icon, mcat.color as category_color,
@@ -701,12 +827,13 @@ export default async function mealplanRoutes(fastify) {
           recipe_id: { type: 'integer' },
           day_of_week: { type: 'integer', minimum: 0, maximum: 6 },
           category_id: { type: 'integer', description: 'Tageszeit-Kategorie (is_meal_time=1)' },
+          plan_date: { type: 'string', format: 'date', description: 'Konkretes Datum' },
           servings: { type: 'integer', minimum: 1, maximum: 100 },
         },
       },
     },
   }, async (request, reply) => {
-    const { recipe_id, servings, day_of_week, category_id } = request.body;
+    const { recipe_id, servings, day_of_week, category_id, plan_date } = request.body;
     const userId = request.user.id;
     const hhWhere = householdWhereClause(userId, request.householdId);
 
@@ -730,9 +857,10 @@ export default async function mealplanRoutes(fastify) {
           servings = COALESCE(?, servings),
           day_of_week = COALESCE(?, day_of_week),
           category_id = COALESCE(?, category_id),
-          meal_type = COALESCE(?, meal_type)
+          meal_type = COALESCE(?, meal_type),
+          plan_date = COALESCE(?, plan_date)
       WHERE id = ? AND meal_plan_id IN (SELECT id FROM meal_plans WHERE (${hhWhere.clause}))
-    `).run(recipe_id, servings, day_of_week, category_id, catName, request.params.entryId, ...hhWhere.params);
+    `).run(recipe_id, servings, day_of_week, category_id, catName, plan_date, request.params.entryId, ...hhWhere.params);
 
     if (result.changes === 0) return reply.status(404).send({ error: 'Eintrag nicht gefunden' });
 
@@ -769,11 +897,12 @@ export default async function mealplanRoutes(fastify) {
         properties: {
           day_of_week: { type: 'integer', minimum: 0, maximum: 6 },
           category_id: { type: 'integer', description: 'Ziel-Tageszeit-Kategorie' },
+          plan_date: { type: 'string', format: 'date', description: 'Ziel-Datum' },
         },
       },
     },
   }, async (request, reply) => {
-    const { day_of_week, category_id } = request.body;
+    const { day_of_week, category_id, plan_date } = request.body;
     const { planId, entryId } = request.params;
     const userId = request.user.id;
     const hhWhere = householdWhereClause(userId, request.householdId);
@@ -786,23 +915,27 @@ export default async function mealplanRoutes(fastify) {
     if (!mealCat) return reply.status(400).send({ error: 'Ungültige Tageszeit-Kategorie' });
 
     // Prüfen ob Zielslot bereits belegt → tauschen
-    const existingTarget = db.prepare(
-      'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ? AND id != ?'
-    ).get(planId, day_of_week, category_id, entryId);
+    const existingTarget = plan_date
+      ? db.prepare(
+          'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND plan_date = ? AND category_id = ? AND id != ?'
+        ).get(planId, plan_date, category_id, entryId)
+      : db.prepare(
+          'SELECT id FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ? AND id != ?'
+        ).get(planId, day_of_week, category_id, entryId);
 
     if (existingTarget) {
-      const source = db.prepare('SELECT day_of_week, category_id FROM meal_plan_entries WHERE id = ? AND meal_plan_id = ?').get(entryId, planId);
+      const source = db.prepare('SELECT day_of_week, category_id, plan_date FROM meal_plan_entries WHERE id = ? AND meal_plan_id = ?').get(entryId, planId);
       if (!source) return reply.status(404).send({ error: 'Eintrag nicht gefunden' });
-      db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, category_id = ? WHERE id = ? AND meal_plan_id = ?')
-        .run(source.day_of_week, source.category_id, existingTarget.id, planId);
+      db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, category_id = ?, plan_date = ? WHERE id = ? AND meal_plan_id = ?')
+        .run(source.day_of_week, source.category_id, source.plan_date, existingTarget.id, planId);
     }
 
-    const moveResult = db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, category_id = ?, meal_type = ? WHERE id = ? AND meal_plan_id = ?')
-      .run(day_of_week, category_id, mealCat.name, entryId, planId);
+    const moveResult = db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, category_id = ?, meal_type = ?, plan_date = COALESCE(?, plan_date) WHERE id = ? AND meal_plan_id = ?')
+      .run(day_of_week, category_id, mealCat.name, plan_date, entryId, planId);
     if (moveResult.changes === 0) return reply.status(404).send({ error: 'Eintrag nicht gefunden' });
 
-    const weekStart = db.prepare('SELECT week_start FROM meal_plans WHERE id = ?').get(planId).week_start;
-    const updatedPlan = getMealPlan(userId, weekStart, request.householdId);
+    const updatedPlan = getMealPlanById(userId, Number(planId), request.householdId);
+    const weekStart = updatedPlan?.week_start;
     broadcastToHousehold(request.householdId, 'mealplan:updated', { week_start: weekStart }, userId);
     return { message: 'Eintrag verschoben!', plan: updatedPlan };
   });
@@ -849,19 +982,22 @@ export default async function mealplanRoutes(fastify) {
         const todayDayOfWeek = jsDay === 0 ? 6 : jsDay - 1; // 0=Mo, ..., 6=So
 
         if (entry.day_of_week !== todayDayOfWeek) {
+          // Heute als plan_date berechnen
+          const todayDate = formatDateLocal(now);
+
           // Prüfen ob heute im gleichen Slot (category_id) ein Rezept liegt
           const todayEntry = db.prepare(
-            'SELECT id, day_of_week FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ? AND id != ?'
+            'SELECT id, day_of_week, plan_date FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ? AND id != ?'
           ).get(entry.meal_plan_id, todayDayOfWeek, entry.category_id, entry.id);
 
           if (todayEntry) {
             // Beide Einträge tauschen: heutiger → Ursprungstag, markierter → heute
-            db.prepare('UPDATE meal_plan_entries SET day_of_week = ? WHERE id = ?')
-              .run(entry.day_of_week, todayEntry.id);
+            db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, plan_date = ? WHERE id = ?')
+              .run(entry.day_of_week, entry.plan_date, todayEntry.id);
           }
           // Markierten Eintrag auf heute verschieben
-          db.prepare('UPDATE meal_plan_entries SET day_of_week = ? WHERE id = ?')
-            .run(todayDayOfWeek, entry.id);
+          db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, plan_date = ? WHERE id = ?')
+            .run(todayDayOfWeek, todayDate, entry.id);
           swapped = true;
         }
       }
@@ -1047,6 +1183,8 @@ export default async function mealplanRoutes(fastify) {
     // Entries den Plans zuordnen
     const plansWithEntries = plans.map(plan => ({
       week_start: plan.week_start,
+      start_date: plan.start_date || null,
+      end_date: plan.end_date || null,
       created_at: plan.created_at,
       owner: plan.owner,
       entries: entries
@@ -1055,6 +1193,7 @@ export default async function mealplanRoutes(fastify) {
           recipe_title: e.recipe_title,
           recipe_id: e.recipe_id,
           day_of_week: e.day_of_week,
+          plan_date: e.plan_date || null,
           meal_type: e.meal_type,
           category_name: e.category_name,
           servings: e.servings,
@@ -1127,10 +1266,10 @@ export default async function mealplanRoutes(fastify) {
     const hhWhere = householdWhereClause(userId, householdId);
 
     const insertPlan = db.prepare(
-      'INSERT INTO meal_plans (user_id, week_start, household_id) VALUES (?, ?, ?)'
+      'INSERT INTO meal_plans (user_id, week_start, start_date, end_date, household_id) VALUES (?, ?, ?, ?, ?)'
     );
     const insertEntry = db.prepare(
-      'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const findRecipe = db.prepare(
       `SELECT id FROM recipes WHERE (${hhWhere.clause}) AND LOWER(title) = LOWER(?)`
@@ -1180,7 +1319,11 @@ export default async function mealplanRoutes(fastify) {
         const existing = existingPlan.get(...hhWhere.params, plan.week_start);
         if (existing) { skipped++; continue; }
 
-        const { lastInsertRowid } = insertPlan.run(userId, plan.week_start, householdId || null);
+        // start_date/end_date validieren (optionale Felder aus neuem Export-Format)
+        const startDate = plan.start_date && /^\d{4}-\d{2}-\d{2}$/.test(plan.start_date) ? plan.start_date : null;
+        const endDate = plan.end_date && /^\d{4}-\d{2}-\d{2}$/.test(plan.end_date) ? plan.end_date : null;
+
+        const { lastInsertRowid } = insertPlan.run(userId, plan.week_start, startDate, endDate, householdId || null);
         const planId = Number(lastInsertRowid);
         imported++;
 
@@ -1202,6 +1345,8 @@ export default async function mealplanRoutes(fastify) {
 
             const dayOfWeek = Math.min(Math.max(parseInt(entry.day_of_week) || 0, 0), 6);
             const servings = Math.min(Math.max(parseInt(entry.servings) || 2, 1), 100);
+            // plan_date aus neuem Export-Format (optional)
+            const planDate = entry.plan_date && /^\d{4}-\d{2}-\d{2}$/.test(entry.plan_date) ? entry.plan_date : null;
 
             // Kategorie auflösen
             const cat = resolveCategoryId(entry);
@@ -1211,6 +1356,7 @@ export default async function mealplanRoutes(fastify) {
               planId,
               recipeId,
               dayOfWeek,
+              planDate,
               cat.name,
               cat.id,
               servings,

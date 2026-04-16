@@ -21,6 +21,51 @@ import { estimateNutrition } from './recipe-parser.js';
 const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
 /**
+ * Formatiert ein Date-Objekt als YYYY-MM-DD (lokale Zeitzone, kein UTC-Shift).
+ */
+export function formatDateLocal(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Addiert Tage zu einem Datumsstring (YYYY-MM-DD).
+ * @param {string} dateStr - Datum als YYYY-MM-DD
+ * @param {number} days - Anzahl Tage (positiv oder negativ)
+ * @returns {string} - Neues Datum als YYYY-MM-DD
+ */
+export function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T12:00:00'); // Mittag um DST-Probleme zu vermeiden
+  d.setDate(d.getDate() + days);
+  return formatDateLocal(d);
+}
+
+/**
+ * Erzeugt ein Array aller Daten von startDate bis endDate (inklusiv).
+ * @param {string} startDate - YYYY-MM-DD
+ * @param {string} endDate - YYYY-MM-DD
+ * @returns {Array<{plan_date: string, day_of_week: number, day_name: string}>}
+ */
+export function getDateRange(startDate, endDate) {
+  const dates = [];
+  const start = new Date(startDate + 'T12:00:00');
+  const end = new Date(endDate + 'T12:00:00');
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const isoStr = formatDateLocal(d);
+    const jsDay = d.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const dayOfWeek = jsDay === 0 ? 6 : jsDay - 1; // 0=Mon, ..., 6=Sun (ISO)
+    dates.push({
+      plan_date: isoStr,
+      day_of_week: dayOfWeek,
+      day_name: DAY_NAMES[dayOfWeek],
+    });
+  }
+  return dates;
+}
+
+/**
  * Berechnet die "ungebundenen" Vorräte eines Benutzers.
  * Zieht die Zutaten aller ungekochten Rezepte der aktuellen Woche ab
  * und gibt nur die Restnamen zurück (lowercase Set).
@@ -582,10 +627,11 @@ async function ensureNutritionData(recipes) {
 // ============================================
 
 /**
- * Generiert einen Wochenplan per Scoring-Algorithmus.
+ * Generiert einen Essensplan per Scoring-Algorithmus.
+ * Unterstützt beliebige Datumsbereiche (nicht nur Mo-So).
  * @param {number} userId - Benutzer-ID
  * @param {object} options - Konfiguration
- * @returns {Promise<object>} - { plan, reasoning }
+ * @returns {Promise<object>} - { plan, nutritionEstimatedCount }
  */
 export async function generateWeekPlan(userId, options = {}) {
   const {
@@ -595,7 +641,9 @@ export async function generateWeekPlan(userId, options = {}) {
     collectionIds = [],       // Nur Rezepte aus diesen Sammlungen
     deduplicateCollections = true, // Rezepte in mehreren Sammlungen nur einmal zählen
     enableAiReasoning = false,    // KI-Begründung generieren?
-    activeDays = [0, 1, 2, 3, 4, 5, 6], // Für welche Tage generiert wird
+    startDate = null,             // NEU: Startdatum YYYY-MM-DD (null = Legacy-Modus)
+    endDate = null,               // NEU: Enddatum YYYY-MM-DD (null = Legacy-Modus)
+    activeDays = [0, 1, 2, 3, 4, 5, 6], // LEGACY: Für welche Wochentage (0=Mo...6=So)
     calorieTarget = null,         // kcal/Tag pro Person (null = deaktiviert)
     calorieDistribution = null,   // { categoryId: percent, ... } in %
     calorieStrictness = 'moderate', // 'soft' | 'moderate' | 'strict'
@@ -699,18 +747,40 @@ export async function generateWeekPlan(userId, options = {}) {
   // Tracking: letzte Kategorie pro Tageszeit-Kategorie (für Abwechslung)
   const lastCategoryByMeal = {};
 
-  // Pro Tageszeit-Kategorie: passende Rezepte vorab filtern
+   // Pro Tageszeit-Kategorie: passende Rezepte vorab filtern
   const recipesPerCategory = {};
   for (const cat of categories) {
     recipesPerCategory[cat.id] = filterByCategory(recipeData, cat.name);
   }
 
-  const activeDaySet = new Set(activeDays);
+  // --- Planungsdaten bestimmen ---
+  let planDates;
+  if (startDate && endDate) {
+    // Neuer Modus: alle Daten im Bereich werden geplant
+    planDates = getDateRange(startDate, endDate);
+  } else {
+    // Legacy-Modus: weekStart + activeDays (0=Mo...6=So)
+    const ws = options.weekStart || getWeekStart();
+    const allDates = getDateRange(ws, addDays(ws, 6));
+    const activeDaySet = new Set(activeDays);
+    planDates = allDates.map(d => ({
+      ...d,
+      active: activeDaySet.has(d.day_of_week),
+    }));
+  }
 
-  for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
-    // Tag überspringen wenn nicht aktiv
-    if (!activeDaySet.has(dayIdx)) {
-      plan.push({ day: dayIdx, day_name: DAY_NAMES[dayIdx], meals: [] });
+  for (const planDate of planDates) {
+    const dayIdx = planDate.day_of_week;
+
+    // Tag überspringen wenn nicht aktiv (nur Legacy-Modus)
+    if (planDate.active === false) {
+      plan.push({
+        plan_date: planDate.plan_date,
+        day_of_week: dayIdx,
+        day: dayIdx, // Legacy-Compat
+        day_name: planDate.day_name,
+        meals: [],
+      });
       continue;
     }
 
@@ -753,15 +823,17 @@ export async function generateWeekPlan(userId, options = {}) {
 
       // Grund sammeln
       if (pick.score >= 180) {
-        reasons.push(`\u201E${recipe.title}\u201C (${DAY_NAMES[dayIdx]}): lange nicht gekocht`);
+        reasons.push(`\u201E${recipe.title}\u201C (${planDate.day_name}): lange nicht gekocht`);
       } else if (recipe.is_favorite) {
-        reasons.push(`\u201E${recipe.title}\u201C (${DAY_NAMES[dayIdx]}): Favorit`);
+        reasons.push(`\u201E${recipe.title}\u201C (${planDate.day_name}): Favorit`);
       }
     }
 
     plan.push({
-      day: dayIdx,
-      day_name: DAY_NAMES[dayIdx],
+      plan_date: planDate.plan_date,
+      day_of_week: dayIdx,
+      day: dayIdx, // Legacy-Compat
+      day_name: planDate.day_name,
       meals: dayMeals,
     });
   }
@@ -823,30 +895,41 @@ export async function generateReasoning(plan) {
 // ============================================
 
 /**
- * Speichert einen generierten Wochenplan in der Datenbank
+ * Speichert einen generierten Plan in der Datenbank.
+ * Schreibt sowohl neue Spalten (start_date, end_date, plan_date) als auch Legacy-Spalten (week_start, day_of_week).
+ * @param {number} userId
+ * @param {string} startDate - YYYY-MM-DD (wird auch als Legacy week_start gespeichert)
+ * @param {string} endDate - YYYY-MM-DD
+ * @param {object} planData - { plan: [...], reasoning?: string }
+ * @param {number|null} householdId
+ * @returns {number} planId
  */
-export function saveMealPlan(userId, weekStart, planData, householdId) {
+export function saveMealPlan(userId, startDate, endDate, planData, householdId) {
   const plan = planData.plan;
   if (!Array.isArray(plan) || plan.length === 0) {
-    throw new Error('Kein gültiger Wochenplan zum Speichern vorhanden.');
+    throw new Error('Kein gültiger Plan zum Speichern vorhanden.');
   }
 
   const insertPlan = db.prepare(
-    'INSERT INTO meal_plans (user_id, week_start, reasoning, household_id) VALUES (?, ?, ?, ?)'
+    'INSERT INTO meal_plans (user_id, week_start, start_date, end_date, reasoning, household_id) VALUES (?, ?, ?, ?, ?, ?)'
   );
   const insertEntry = db.prepare(
-    'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
 
   const transaction = db.transaction(() => {
-    const { lastInsertRowid: planId } = insertPlan.run(userId, weekStart, planData.reasoning || null, householdId || null);
+    // Legacy week_start = startDate (für Abwärtskompatibilität)
+    const { lastInsertRowid: planId } = insertPlan.run(
+      userId, startDate, startDate, endDate, planData.reasoning || null, householdId || null
+    );
 
     for (const day of plan) {
-      const dayNum = day.day ?? plan.indexOf(day);
+      const dayOfWeek = day.day_of_week ?? day.day ?? plan.indexOf(day);
+      const planDate = day.plan_date || null;
       const meals = Array.isArray(day.meals) ? day.meals : [];
       for (const meal of meals) {
         if (!meal.recipe_id) continue;
-        insertEntry.run(planId, meal.recipe_id, dayNum, meal.meal_type, meal.category_id, meal.servings || 4);
+        insertEntry.run(planId, meal.recipe_id, dayOfWeek, planDate, meal.meal_type, meal.category_id, meal.servings || 4);
       }
     }
 
@@ -857,12 +940,14 @@ export function saveMealPlan(userId, weekStart, planData, householdId) {
 }
 
 /**
- * Lädt einen Wochenplan mit allen Details
+ * Lädt einen Plan mit allen Details.
+ * Unterstützt Lookup per week_start (Legacy) oder per Plan-ID.
  */
 export function getMealPlan(userId, weekStart, householdId) {
   const hw = householdWhereClause(userId, householdId);
   const plan = db.prepare(
-    `SELECT id, user_id, week_start, created_at, reasoning, is_locked FROM meal_plans WHERE (${hw.clause}) AND week_start = ?`
+    `SELECT id, user_id, week_start, start_date, end_date, created_at, reasoning, is_locked
+     FROM meal_plans WHERE (${hw.clause}) AND week_start = ?`
   ).get(...hw.params, weekStart);
 
   if (!plan) return null;
@@ -895,8 +980,111 @@ export function getMealPlan(userId, weekStart, householdId) {
     LEFT JOIN categories c ON rc.category_id = c.id
     WHERE mpe.meal_plan_id = ?
     GROUP BY mpe.id
-    ORDER BY mpe.day_of_week, mcat.sort_order, mpe.category_id
+    ORDER BY COALESCE(mpe.plan_date, mpe.day_of_week), mcat.sort_order, mpe.category_id
   `).all(plan.id);
 
   return { ...plan, entries };
+}
+
+/**
+ * Lädt einen Plan per ID (statt week_start).
+ * Für die neue Plan-Ansicht, wo per Dropdown ein Plan gewählt wird.
+ */
+export function getMealPlanById(userId, planId, householdId) {
+  const hw = householdWhereClause(userId, householdId);
+  const plan = db.prepare(
+    `SELECT id, user_id, week_start, start_date, end_date, created_at, reasoning, is_locked
+     FROM meal_plans WHERE (${hw.clause}) AND id = ?`
+  ).get(...hw.params, planId);
+
+  if (!plan) return null;
+
+  const entries = db.prepare(`
+    SELECT
+      mpe.*,
+      mcat.name as category_name,
+      mcat.icon as category_icon,
+      mcat.color as category_color,
+      mcat.sort_order as category_sort_order,
+      r.title as recipe_title,
+      r.image_url,
+      r.total_time,
+      r.difficulty,
+      r.description as recipe_description,
+      r.is_favorite,
+      r.ai_generated,
+      r.times_cooked,
+      r.servings as original_servings,
+      r.calories,
+      r.protein,
+      r.carbs,
+      r.fat,
+      GROUP_CONCAT(DISTINCT c.name) as category_names
+    FROM meal_plan_entries mpe
+    LEFT JOIN categories mcat ON mpe.category_id = mcat.id
+    JOIN recipes r ON mpe.recipe_id = r.id
+    LEFT JOIN recipe_categories rc ON r.id = rc.recipe_id
+    LEFT JOIN categories c ON rc.category_id = c.id
+    WHERE mpe.meal_plan_id = ?
+    GROUP BY mpe.id
+    ORDER BY COALESCE(mpe.plan_date, mpe.day_of_week), mcat.sort_order, mpe.category_id
+  `).all(plan.id);
+
+  return { ...plan, entries };
+}
+
+/**
+ * Lädt alle Entries in einem Datumsbereich (plan-übergreifend).
+ * Für die Wochen-Ansicht, wo z.B. Mo-So angezeigt wird, egal welchen Plänen die Entries gehören.
+ * @param {number} userId
+ * @param {string} startDate - YYYY-MM-DD
+ * @param {string} endDate - YYYY-MM-DD
+ * @param {number|null} householdId
+ * @returns {{ entries: Array, plans: Array<{id, start_date, end_date}> }}
+ */
+export function getEntriesByDateRange(userId, startDate, endDate, householdId) {
+  const hw = householdWhereClause(userId, householdId, 'mp');
+  const entries = db.prepare(`
+    SELECT
+      mpe.*,
+      mp.start_date as plan_start_date,
+      mp.end_date as plan_end_date,
+      mcat.name as category_name,
+      mcat.icon as category_icon,
+      mcat.color as category_color,
+      mcat.sort_order as category_sort_order,
+      r.title as recipe_title,
+      r.image_url,
+      r.total_time,
+      r.difficulty,
+      r.description as recipe_description,
+      r.is_favorite,
+      r.ai_generated,
+      r.times_cooked,
+      r.servings as original_servings,
+      r.calories,
+      r.protein,
+      r.carbs,
+      r.fat,
+      GROUP_CONCAT(DISTINCT c.name) as category_names
+    FROM meal_plan_entries mpe
+    JOIN meal_plans mp ON mpe.meal_plan_id = mp.id
+    LEFT JOIN categories mcat ON mpe.category_id = mcat.id
+    JOIN recipes r ON mpe.recipe_id = r.id
+    LEFT JOIN recipe_categories rc ON r.id = rc.recipe_id
+    LEFT JOIN categories c ON rc.category_id = c.id
+    WHERE (${hw.clause}) AND mpe.plan_date BETWEEN ? AND ?
+    GROUP BY mpe.id
+    ORDER BY mpe.plan_date, mcat.sort_order, mpe.category_id
+  `).all(...hw.params, startDate, endDate);
+
+  // Betroffene Pläne für Metadaten
+  const plans = db.prepare(`
+    SELECT DISTINCT mp.id, mp.start_date, mp.end_date, mp.week_start, mp.is_locked
+    FROM meal_plans mp
+    JOIN meal_plan_entries mpe ON mp.id = mpe.meal_plan_id
+    WHERE (${hw.clause}) AND mpe.plan_date BETWEEN ? AND ?
+  `).all(...hw.params, startDate, endDate);
+
+  return { entries, plans };
 }

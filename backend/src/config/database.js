@@ -988,6 +988,47 @@ function migrateDatabase() {
 
     console.log('  ↳ Migration: meal_plan_entries.category_id fertig');
   }
+
+  // ─── meal_plans: start_date + end_date (freie Datumsbereiche) ───
+  if (!mpCols.includes('start_date')) {
+    console.log('  ↳ Migration: meal_plans → start_date/end_date hinzufügen...');
+    db.exec("ALTER TABLE meal_plans ADD COLUMN start_date DATE");
+    db.exec("ALTER TABLE meal_plans ADD COLUMN end_date DATE");
+    // Bestehende Pläne migrieren: week_start → start_date, week_start+6 → end_date
+    db.exec(`
+      UPDATE meal_plans
+      SET start_date = week_start,
+          end_date = date(week_start, '+6 days')
+      WHERE start_date IS NULL AND week_start IS NOT NULL
+    `);
+    console.log('  ↳ Migration: meal_plans.start_date/end_date fertig');
+  }
+
+  // ─── meal_plan_entries: plan_date (konkretes Datum statt day_of_week) ───
+  const mpeCols2 = db.prepare("PRAGMA table_info(meal_plan_entries)").all().map(c => c.name);
+  if (!mpeCols2.includes('plan_date')) {
+    console.log('  ↳ Migration: meal_plan_entries → plan_date hinzufügen...');
+    db.exec("ALTER TABLE meal_plan_entries ADD COLUMN plan_date DATE");
+    // Bestehende Entries migrieren: week_start + day_of_week → plan_date
+    db.exec(`
+      UPDATE meal_plan_entries
+      SET plan_date = date(
+        (SELECT week_start FROM meal_plans WHERE id = meal_plan_entries.meal_plan_id),
+        '+' || day_of_week || ' days'
+      )
+      WHERE plan_date IS NULL
+    `);
+    // Einträge ohne plan_date entfernen (verwaiste Entries ohne gültigen Plan)
+    const nullDateCount = db.prepare(
+      "SELECT COUNT(*) as cnt FROM meal_plan_entries WHERE plan_date IS NULL"
+    ).get().cnt;
+    if (nullDateCount > 0) {
+      console.warn(`    ⚠ ${nullDateCount} Einträge ohne plan_date — werden entfernt`);
+      db.exec("DELETE FROM meal_plan_entries WHERE plan_date IS NULL");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS idx_mpe_plan_date ON meal_plan_entries(plan_date)");
+    console.log('  ↳ Migration: meal_plan_entries.plan_date fertig');
+  }
 }
 
 /**

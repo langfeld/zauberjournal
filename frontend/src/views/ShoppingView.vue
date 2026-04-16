@@ -142,15 +142,15 @@
         <div class="relative flex items-stretch w-full sm:w-auto">
           <button
             @click="generateList"
-            :disabled="shoppingStore.loading || !selectedWeekStart || !isOnline"
+            :disabled="shoppingStore.loading || !shopDateRangeValid || !isOnline"
             :title="!isOnline ? 'Internetverbindung erforderlich' : ''"
             class="flex sm:flex-initial flex-1 justify-center items-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 px-4 py-2 rounded-l-xl font-medium text-white text-sm transition-colors"
           >
             <ListPlus class="w-4 h-4" />
-            Aus Wochenplan erstellen
+            Aus Essensplan erstellen
           </button>
           <button
-            @click="showGenOptions = !showGenOptions; if (showGenOptions) loadAvailableWeeks()"
+            @click="showGenOptions = !showGenOptions; if (showGenOptions) loadAvailablePlans()"
             class="flex items-center bg-primary-600 hover:bg-primary-700 px-2.5 border-primary-500 border-l rounded-r-xl text-white transition-colors"
             title="Optionen"
           >
@@ -163,76 +163,63 @@
           <Transition name="fade">
             <div v-if="showGenOptions" class="top-full sm:right-0 left-0 sm:left-auto z-30 absolute bg-white dark:bg-stone-800 shadow-lg mt-1.5 border border-stone-200 dark:border-stone-700 rounded-xl w-[calc(100vw-2rem)] sm:w-96 overflow-hidden">
               <div class="space-y-3 p-3">
-                <!-- Wochen-Auswahl -->
+                <!-- Zeitraum auswählen -->
                 <div>
-                  <p class="mb-2 font-medium text-stone-500 dark:text-stone-400 text-xs uppercase tracking-wide">Woche auswählen</p>
+                  <p class="mb-2 font-medium text-stone-500 dark:text-stone-400 text-xs uppercase tracking-wide">Zeitraum auswählen</p>
 
                   <!-- Ladezustand -->
-                  <div v-if="availableWeeksLoading" class="flex justify-center items-center py-6">
+                  <div v-if="availablePlansLoading" class="flex justify-center items-center py-6">
                     <Loader2 class="w-5 h-5 text-primary-500 animate-spin" />
                   </div>
 
-                  <!-- Keine Pläne -->
-                  <div v-else-if="availableWeeksError" class="py-4 text-center">
+                  <!-- Fehler -->
+                  <div v-else-if="availablePlansError" class="py-4 text-center">
                     <AlertTriangle class="mx-auto mb-2 w-8 h-8 text-amber-400 dark:text-amber-500" />
-                    <p class="text-stone-500 dark:text-stone-400 text-sm">Wochenpläne konnten nicht geladen werden</p>
-                    <button @click="loadAvailableWeeks()" class="bg-primary-600 hover:bg-primary-700 mt-2 px-3 py-1.5 rounded-lg font-medium text-white text-xs transition-colors">
+                    <p class="text-stone-500 dark:text-stone-400 text-sm">Pläne konnten nicht geladen werden</p>
+                    <button @click="loadAvailablePlans()" class="bg-primary-600 hover:bg-primary-700 mt-2 px-3 py-1.5 rounded-lg font-medium text-white text-xs transition-colors">
                       <RefreshCw class="inline mr-1 w-3 h-3" />
                       Erneut versuchen
                     </button>
                   </div>
-                  <div v-else-if="unlockedWeeks.length === 0" class="py-4 text-center">
-                    <CalendarDays class="mx-auto mb-2 w-8 h-8 text-stone-300 dark:text-stone-600" />
-                    <p class="text-stone-500 dark:text-stone-400 text-sm">Keine Wochenpläne vorhanden</p>
-                    <p class="text-stone-400 dark:text-stone-500 text-xs">Erstelle zuerst einen Plan im Wochenplaner</p>
-                  </div>
 
-                  <!-- Wochen-Liste -->
-                  <div v-else class="space-y-1.5 max-h-64 overflow-y-auto scrollbar-thin">
-                    <div
-                      v-for="week in unlockedWeeks"
-                      :key="week.id"
-                      class="group/week px-3 py-2.5 border rounded-lg w-full text-left transition-colors cursor-pointer"
-                      :class="selectedWeekStart === week.week_start
-                        ? 'bg-primary-50 dark:bg-primary-900/30 border-primary-300 dark:border-primary-700'
-                        : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 border-transparent'"
-                      @click="selectedWeekStart = week.week_start"
-                    >
-                      <!-- Datum + Badges + Löschen -->
-                      <div class="flex items-center gap-1.5">
-                        <span class="font-medium text-sm" :class="selectedWeekStart === week.week_start
-                          ? 'text-primary-700 dark:text-primary-300'
-                          : 'text-stone-700 dark:text-stone-200'">
-                          {{ formatWeekLabel(week.week_start) }}
-                        </span>
-                        <span v-if="isCurrentWeek(week.week_start)"
-                          class="bg-primary-100 dark:bg-primary-900/50 px-1.5 py-0.5 rounded font-semibold text-[10px] text-primary-600 dark:text-primary-400">
-                          AKTUELL
-                        </span>
-                        <span class="flex-1" />
+                  <div v-else class="space-y-3">
+                    <!-- Von / Bis Datepicker -->
+                    <div class="gap-2 grid grid-cols-2">
+                      <div>
+                        <label class="block mb-1 text-stone-500 dark:text-stone-400 text-xs">Von</label>
+                        <input type="date" v-model="shopStartDate"
+                          class="bg-white dark:bg-stone-700 px-2.5 py-1.5 border border-stone-300 dark:border-stone-600 rounded-lg focus:ring-2 focus:ring-primary-500 w-full text-stone-800 dark:text-stone-200 text-sm focus:outline-none" />
+                      </div>
+                      <div>
+                        <label class="block mb-1 text-stone-500 dark:text-stone-400 text-xs">Bis</label>
+                        <input type="date" v-model="shopEndDate"
+                          class="bg-white dark:bg-stone-700 px-2.5 py-1.5 border border-stone-300 dark:border-stone-600 rounded-lg focus:ring-2 focus:ring-primary-500 w-full text-stone-800 dark:text-stone-200 text-sm focus:outline-none" />
+                      </div>
+                    </div>
 
-                      </div>
-                      <!-- Rezept-Thumbnails -->
-                      <div v-if="week.recipes.length" class="flex items-center gap-1 mt-1.5">
-                        <template v-for="(recipe, idx) in week.recipes.slice(0, 6)" :key="recipe.recipe_id">
-                          <img
-                            v-if="recipe.image_url"
-                            :src="recipe.image_url"
-                            :alt="recipe.title"
-                            :title="recipe.title"
-                            class="rounded-md ring-1 ring-stone-200 dark:ring-stone-600 w-8 h-8 object-cover"
-                          />
-                          <div v-else
-                            :title="recipe.title"
-                            class="flex justify-center items-center bg-stone-100 dark:bg-stone-700 rounded-md w-8 h-8 text-stone-400 dark:text-stone-500 text-xs">
-                            🍽️
-                          </div>
-                        </template>
-                        <span v-if="week.recipes.length > 6"
-                          class="flex justify-center items-center bg-stone-100 dark:bg-stone-700 rounded-md w-8 h-8 font-medium text-stone-500 dark:text-stone-400 text-xs">
-                          +{{ week.recipes.length - 6 }}
-                        </span>
-                      </div>
+                    <!-- Validation Hinweis -->
+                    <p v-if="shopStartDate && shopEndDate && !shopDateRangeValid" class="text-red-500 dark:text-red-400 text-xs">
+                      Ungültiger Zeitraum (max. 28 Tage, Enddatum muss nach Startdatum liegen)
+                    </p>
+
+                    <!-- Quick-Buttons -->
+                    <div class="flex flex-wrap gap-1.5">
+                      <button @click="setShopDatePreset('thisWeek')"
+                        class="bg-stone-100 dark:bg-stone-700 hover:bg-stone-200 dark:hover:bg-stone-600 px-2.5 py-1 rounded-lg text-stone-600 dark:text-stone-300 text-xs transition-colors">
+                        Diese Woche
+                      </button>
+                      <button @click="setShopDatePreset('nextWeek')"
+                        class="bg-stone-100 dark:bg-stone-700 hover:bg-stone-200 dark:hover:bg-stone-600 px-2.5 py-1 rounded-lg text-stone-600 dark:text-stone-300 text-xs transition-colors">
+                        Nächste Woche
+                      </button>
+                      <button @click="setShopDatePreset('next14')"
+                        class="bg-stone-100 dark:bg-stone-700 hover:bg-stone-200 dark:hover:bg-stone-600 px-2.5 py-1 rounded-lg text-stone-600 dark:text-stone-300 text-xs transition-colors">
+                        Nächste 14 Tage
+                      </button>
+                      <button @click="setShopDatePreset('fromToday')"
+                        class="bg-stone-100 dark:bg-stone-700 hover:bg-stone-200 dark:hover:bg-stone-600 px-2.5 py-1 rounded-lg text-stone-600 dark:text-stone-300 text-xs transition-colors">
+                        Ab heute (7 Tage)
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -246,7 +233,7 @@
                   </div>
                   <div>
                     <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">Vergangene Tage</p>
-                    <p class="text-stone-400 dark:text-stone-500 text-xs">Auch Rezepte zurückliegender Tage der gewählten Woche einbeziehen</p>
+                    <p class="text-stone-400 dark:text-stone-500 text-xs">Auch Rezepte zurückliegender Tage einbeziehen</p>
                   </div>
                 </label>
               </div>
@@ -2117,7 +2104,7 @@
     <!-- Dialog: Bestehende Einkaufsliste vorhanden -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="showListExistsDialog" class="z-50 fixed inset-0 flex justify-center items-end sm:items-center bg-black/50 p-4" @click.self="showListExistsDialog = false; pendingGeneratePlanId = null">
+        <div v-if="showListExistsDialog" class="z-50 fixed inset-0 flex justify-center items-end sm:items-center bg-black/50 p-4" @click.self="showListExistsDialog = false; pendingGenerateOptions = null">
           <div class="bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-md overflow-hidden">
             <!-- Header -->
             <div class="flex justify-between items-center px-5 py-4 border-stone-200 dark:border-stone-700 border-b">
@@ -2125,7 +2112,7 @@
                 <AlertTriangle class="w-5 h-5 text-amber-500" />
                 Einkaufsliste vorhanden
               </h2>
-              <button @click="showListExistsDialog = false; pendingGeneratePlanId = null" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg text-stone-400 transition-colors">
+              <button @click="showListExistsDialog = false; pendingGenerateOptions = null" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg text-stone-400 transition-colors">
                 <X class="w-5 h-5" />
               </button>
             </div>
@@ -2136,7 +2123,7 @@
               </p>
             </div>
             <div class="flex sm:flex-row flex-col justify-end gap-2 px-5 py-4 border-stone-200 dark:border-stone-700 border-t">
-              <button @click="showListExistsDialog = false; pendingGeneratePlanId = null" class="hover:bg-stone-100 dark:hover:bg-stone-800 px-4 py-2.5 rounded-xl font-medium text-stone-500 dark:text-stone-400 text-sm transition-colors">
+              <button @click="showListExistsDialog = false; pendingGenerateOptions = null" class="hover:bg-stone-100 dark:hover:bg-stone-800 px-4 py-2.5 rounded-xl font-medium text-stone-500 dark:text-stone-400 text-sm transition-colors">
                 Abbrechen
               </button>
               <button @click="onListExistsReplace" class="flex justify-center items-center gap-2 bg-stone-600 hover:bg-stone-700 px-4 py-2.5 rounded-xl font-medium text-white text-sm transition-colors">
@@ -2416,22 +2403,14 @@ const showHistoryDropdown = ref(false);
 const historyBtnRef = ref(null);
 const historyDropdownTop = ref(0);
 const genIncludePastDays = ref(false); // Standardmäßig: vergangene Tage NICHT einbeziehen
-const selectedWeekStart = ref(null); // Ausgewählte Woche (week_start als YYYY-MM-DD)
-const availableWeeksLoading = ref(false);
-const unlockedWeeks = computed(() => mealPlanStore.availableWeeks.filter(w => !w.is_locked));
+const shopStartDate = ref(null); // Von-Datum (YYYY-MM-DD)
+const shopEndDate = ref(null); // Bis-Datum (YYYY-MM-DD)
+const availablePlansLoading = ref(false);
 
 // Dialog: Bestehende Liste vorhanden
 const showListExistsDialog = ref(false);
-const pendingGeneratePlanId = ref(null);
+const pendingGenerateOptions = ref(null); // { startDate, endDate }
 
-
-// ISO-Kalenderwoche berechnen
-function getISOWeek(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-}
 
 // Datum als YYYY-MM-DD in lokaler Zeitzone formatieren (toISOString() konvertiert nach UTC und kann das Datum verschieben)
 function toLocalYMD(date) {
@@ -2450,62 +2429,87 @@ function getCurrentMonday() {
   return monday;
 }
 
-// Hilfsfunktion: Wochenlabel formatieren
-function formatWeekLabel(weekStart) {
-  const [y, m, d] = weekStart.split('-').map(Number);
-  const monday = new Date(y, m - 1, d);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const fmt = (dt) => dt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
-  const kw = getISOWeek(monday);
-
-  const currentWeekStart = toLocalYMD(getCurrentMonday());
-
-  if (weekStart === currentWeekStart) return `KW ${kw} · Diese Woche (${fmt(monday)} – ${fmt(sunday)})`;
-
-  // Nächste Woche?
-  const nextMonday = new Date(getCurrentMonday());
-  nextMonday.setDate(nextMonday.getDate() + 7);
-  if (weekStart === toLocalYMD(nextMonday)) return `KW ${kw} · Nächste Woche (${fmt(monday)} – ${fmt(sunday)})`;
-
-  // Letzte Woche?
-  const lastMonday = new Date(getCurrentMonday());
-  lastMonday.setDate(lastMonday.getDate() - 7);
-  if (weekStart === toLocalYMD(lastMonday)) return `KW ${kw} · Letzte Woche (${fmt(monday)} – ${fmt(sunday)})`;
-
-  return `KW ${kw} · ${fmt(monday)} – ${fmt(sunday)}`;
+// Datums-Helfer für Quick-Buttons
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() + days);
+  return toLocalYMD(d);
 }
 
-// Verfügbare Wochen laden beim Öffnen des Dropdowns
-const availableWeeksError = ref(false);
-async function loadAvailableWeeks() {
-  availableWeeksLoading.value = true;
-  availableWeeksError.value = false;
+// Validierung: Datumsbereich für Einkaufsliste
+const shopDateRangeValid = computed(() => {
+  if (!shopStartDate.value || !shopEndDate.value) return false;
+  if (shopEndDate.value < shopStartDate.value) return false;
+  // Max 28 Tage (wie bei Generate)
+  const start = new Date(shopStartDate.value + 'T12:00:00');
+  const end = new Date(shopEndDate.value + 'T12:00:00');
+  const days = Math.round((end - start) / 86400000) + 1;
+  return days > 0 && days <= 28;
+});
+
+// Verfügbare Pläne laden (für Smart-Defaults) und Datums-Defaults setzen
+const availablePlansError = ref(false);
+async function loadAvailablePlans() {
+  availablePlansLoading.value = true;
+  availablePlansError.value = false;
   try {
-    await mealPlanStore.fetchAvailableWeeks();
-    // Automatisch beste Woche wählen
-    if (unlockedWeeks.value.length > 0) {
-      const currentWeekStart = toLocalYMD(getCurrentMonday());
-
-      // Prüfen ob die aktuelle Auswahl noch gültig ist
-      const selectionStillValid = selectedWeekStart.value
-        && unlockedWeeks.value.some(w => w.week_start === selectedWeekStart.value);
-
-      if (!selectionStillValid) {
-        const hasCurrentWeek = unlockedWeeks.value.find(w => w.week_start === currentWeekStart);
-        selectedWeekStart.value = hasCurrentWeek ? currentWeekStart : unlockedWeeks.value[0].week_start;
-      }
+    await mealPlanStore.fetchPlans();
+    // Smart-Defaults setzen falls noch keine Dates gewählt
+    if (!shopStartDate.value || !shopEndDate.value) {
+      setSmartDateDefaults();
     }
   } catch {
-    availableWeeksError.value = true;
+    availablePlansError.value = true;
   } finally {
-    availableWeeksLoading.value = false;
+    availablePlansLoading.value = false;
   }
 }
 
-// Aktuelle Woche für CSS-Highlight prüfen
-function isCurrentWeek(weekStart) {
-  return weekStart === toLocalYMD(getCurrentMonday());
+// Smart-Defaults: Nächstliegenden Plan finden oder Heute → +6
+function setSmartDateDefaults() {
+  const today = toLocalYMD(new Date());
+  const plans = mealPlanStore.plans;
+  if (plans.length > 0) {
+    // Nächstliegenden Plan finden der heute oder in der Zukunft liegt
+    const futurePlan = plans.find(p => {
+      const end = p.end_date || addDays(p.week_start || p.start_date, 6);
+      return end >= today;
+    });
+    if (futurePlan) {
+      shopStartDate.value = futurePlan.start_date || futurePlan.week_start;
+      shopEndDate.value = futurePlan.end_date || addDays(futurePlan.start_date || futurePlan.week_start, 6);
+      return;
+    }
+  }
+  // Fallback: Heute → +6 Tage
+  shopStartDate.value = today;
+  shopEndDate.value = addDays(today, 6);
+}
+
+// Quick-Button Presets für Datumsbereich
+function setShopDatePreset(preset) {
+  const today = toLocalYMD(new Date());
+  const monday = toLocalYMD(getCurrentMonday());
+  switch (preset) {
+    case 'thisWeek':
+      shopStartDate.value = monday;
+      shopEndDate.value = addDays(monday, 6);
+      break;
+    case 'nextWeek': {
+      const nextMon = addDays(monday, 7);
+      shopStartDate.value = nextMon;
+      shopEndDate.value = addDays(nextMon, 6);
+      break;
+    }
+    case 'next14':
+      shopStartDate.value = today;
+      shopEndDate.value = addDays(today, 13);
+      break;
+    case 'fromToday':
+      shopStartDate.value = today;
+      shopEndDate.value = addDays(today, 6);
+      break;
+  }
 }
 
 // Zentrales Einstellungs-Modal
@@ -3083,64 +3087,49 @@ async function setQuantity(item, event) {
 
 async function generateList() {
   showGenOptions.value = false;
-  if (!selectedWeekStart.value) {
-    showError('Bitte wähle eine Woche aus.');
+  if (!shopDateRangeValid.value) {
+    showError('Bitte wähle einen gültigen Zeitraum (max. 28 Tage).');
     return;
   }
 
-  // Plan-ID direkt aus den verfügbaren Wochen nehmen (kein Extra-API-Call nötig)
-  const selectedWeek = mealPlanStore.availableWeeks.find(w => w.week_start === selectedWeekStart.value);
-  const planId = selectedWeek?.id;
-
-  if (!planId) {
-    // Fallback: Wochen neu laden und nochmal versuchen
-    try {
-      await mealPlanStore.fetchAvailableWeeks();
-      const retryWeek = mealPlanStore.availableWeeks.find(w => w.week_start === selectedWeekStart.value);
-      if (retryWeek?.id) {
-        return checkExistingListAndGenerate(retryWeek.id);
-      }
-    } catch { /* wird von useApi angezeigt */ }
-    showError('Kein Wochenplan für diese Woche vorhanden. Erstelle zuerst einen Plan im Wochenplaner.');
-    return;
-  }
-
-  await checkExistingListAndGenerate(planId);
+  await checkExistingListAndGenerate({ startDate: shopStartDate.value, endDate: shopEndDate.value });
 }
 
 /** Prüft ob bereits eine aktive Liste mit Artikeln existiert und zeigt ggf. Dialog */
-async function checkExistingListAndGenerate(planId) {
+async function checkExistingListAndGenerate(options) {
   const hasItems = shoppingStore.items.length > 0;
   if (hasItems) {
     // Dialog anzeigen: Hinzufügen oder Ersetzen?
-    pendingGeneratePlanId.value = planId;
+    pendingGenerateOptions.value = options;
     showListExistsDialog.value = true;
   } else {
-    await doGenerateList(planId, 'replace');
+    await doGenerateList(options, 'replace');
   }
 }
 
 /** Benutzer hat im Dialog "Hinzufügen" gewählt */
 async function onListExistsAppend() {
   showListExistsDialog.value = false;
-  if (pendingGeneratePlanId.value) {
-    await doGenerateList(pendingGeneratePlanId.value, 'append');
+  if (pendingGenerateOptions.value) {
+    await doGenerateList(pendingGenerateOptions.value, 'append');
   }
-  pendingGeneratePlanId.value = null;
+  pendingGenerateOptions.value = null;
 }
 
 /** Benutzer hat im Dialog "Ersetzen" gewählt */
 async function onListExistsReplace() {
   showListExistsDialog.value = false;
-  if (pendingGeneratePlanId.value) {
-    await doGenerateList(pendingGeneratePlanId.value, 'replace');
+  if (pendingGenerateOptions.value) {
+    await doGenerateList(pendingGenerateOptions.value, 'replace');
   }
-  pendingGeneratePlanId.value = null;
+  pendingGenerateOptions.value = null;
 }
 
-async function doGenerateList(planId, mode = 'replace') {
+async function doGenerateList(options, mode = 'replace') {
   try {
-    const data = await shoppingStore.generateList(planId, {
+    const data = await shoppingStore.generateList(null, {
+      startDate: options.startDate,
+      endDate: options.endDate,
       excludePastDays: !genIncludePastDays.value,
       mode,
     });
@@ -3150,8 +3139,6 @@ async function doGenerateList(planId, mode = 'replace') {
         ? `Einkaufsliste erstellt! 📝 (${data.skippedDays} vergangene Tage übersprungen)`
         : 'Einkaufsliste erstellt! 📝';
     showSuccess(msg);
-    // Verfügbare Wochen aktualisieren (EINGEKAUFT-Badge)
-    mealPlanStore.fetchAvailableWeeks();
   } catch {
     // Fehler wird von useApi angezeigt
   }
@@ -3473,8 +3460,8 @@ onMounted(async () => {
   aliasStore.fetchBlockedIngredients();
   // Verlauf immer laden (für History-Button)
   shoppingStore.fetchListHistory();
-  // Verfügbare Wochen vorladen (für Wochenplan → Einkaufsliste)
-  loadAvailableWeeks();
+  // Verfügbare Pläne vorladen (für Datums-Defaults)
+  loadAvailablePlans();
   // REWE-Status prüfen (reweEnabled)
   loadReweMarketSettings();
   // Click-Outside: Matching-Begründung schließen

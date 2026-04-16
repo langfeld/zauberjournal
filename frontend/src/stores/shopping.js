@@ -58,12 +58,19 @@ export const useShoppingStore = defineStore('shopping', () => {
     items.value.filter(i => i.rewe_product?.url && !i.is_checked)
   );
 
-  /** Einkaufsliste aus Wochenplan generieren */
-  async function generateList(mealPlanId, { name, excludePastDays = true, mode = 'replace' } = {}) {
+  /** Einkaufsliste aus Wochenplan generieren (per mealPlanId oder startDate/endDate) */
+  async function generateList(mealPlanId, { name, excludePastDays = true, mode = 'replace', startDate, endDate } = {}) {
     loading.value = true;
     aiReviewDismissed.value = false; // Guard zurücksetzen bei neuer Liste
     try {
-      const data = await api.post('/shopping/generate', { mealPlanId, name, excludePastDays, mode });
+      const body = { name, excludePastDays, mode };
+      if (startDate && endDate) {
+        body.startDate = startDate;
+        body.endDate = endDate;
+      } else {
+        body.mealPlanId = mealPlanId;
+      }
+      const data = await api.post('/shopping/generate', body);
       await fetchActiveList();
       // Vorratscheck zurücksetzen (wird beim nächsten Aufklappen neu geladen)
       pantryCheck.value = null;
