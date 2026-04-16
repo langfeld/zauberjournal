@@ -243,13 +243,10 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Neuen Eintrag in einem leeren Slot hinzufügen */
-  async function addEntry(planId, recipeId, dayOfWeek, categoryId, servings) {
-    const data = await api.post(`/mealplan/${planId}/entry`, {
-      recipe_id: recipeId,
-      day_of_week: dayOfWeek,
-      category_id: categoryId,
-      servings,
-    });
+  async function addEntry(planId, recipeId, dayOfWeek, categoryId, servings, planDate) {
+    const body = { recipe_id: recipeId, day_of_week: dayOfWeek, category_id: categoryId, servings };
+    if (planDate) body.plan_date = planDate;
+    const data = await api.post(`/mealplan/${planId}/entry`, body);
     if (currentPlan.value?.entries && data.entry) {
       currentPlan.value.entries.push(data.entry);
     }
@@ -273,11 +270,10 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Eintrag per Drag & Drop verschieben */
-  async function moveEntry(planId, entryId, dayOfWeek, categoryId) {
-    const data = await api.post(`/mealplan/${planId}/entry/${entryId}/move`, {
-      day_of_week: dayOfWeek,
-      category_id: categoryId,
-    });
+  async function moveEntry(planId, entryId, dayOfWeek, categoryId, planDate) {
+    const body = { day_of_week: dayOfWeek, category_id: categoryId };
+    if (planDate) body.plan_date = planDate;
+    const data = await api.post(`/mealplan/${planId}/entry/${entryId}/move`, body);
     if (data.plan) currentPlan.value = data.plan;
     return data;
   }

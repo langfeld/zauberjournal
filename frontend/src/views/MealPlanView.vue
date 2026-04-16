@@ -400,7 +400,16 @@
               <template v-for="mt in mealTypes" :key="mt.id + '-plan-' + day.dateStr">
                 <div v-if="getMealByDate(day.dateStr, mt.id)"
                   class="group bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg hover:border-primary-300 dark:hover:border-primary-700"
-                  :class="{ 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked }"
+                  :class="[
+                    { 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked },
+                    { 'meal-slot-dragover': dragTarget?.day === day.dateStr && dragTarget?.meal === mt.id }
+                  ]"
+                  :draggable="!isLocked"
+                  @dragstart="!isLocked && onDragStart($event, getMealByDate(day.dateStr, mt.id))"
+                  @dragend="onDragEnd"
+                  @dragover.prevent="!isLocked && onPlanDragOver(day.dateStr, mt.id)"
+                  @dragleave="onDragLeave"
+                  @drop.prevent="!isLocked && onPlanDrop(day.dateStr, mt.id)"
                   @click="selectMeal(getMealByDate(day.dateStr, mt.id))">
 
                   <!-- Bild -->
@@ -472,7 +481,11 @@
 
                 <!-- Leere Karte -->
                 <div v-else
-                  class="flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-10 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl">
+                  class="flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-10 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl transition-colors"
+                  :class="{ 'meal-slot-dragover': dragTarget?.day === day.dateStr && dragTarget?.meal === mt.id }"
+                  @dragover.prevent="!isLocked && onPlanDragOver(day.dateStr, mt.id)"
+                  @dragleave="onDragLeave"
+                  @drop.prevent="!isLocked && onPlanDrop(day.dateStr, mt.id)">
                   <span class="text-stone-300 dark:text-stone-600 text-xs">Kein Rezept</span>
                 </div>
               </template>
@@ -536,7 +549,16 @@
               <template v-for="mt in mealTypes" :key="mt.id + '-plan-' + day.dateStr">
                 <div v-if="getMealByDate(day.dateStr, mt.id)"
                   class="group bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg hover:border-primary-300 dark:hover:border-primary-700"
-                  :class="{ 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked }"
+                  :class="[
+                    { 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked },
+                    { 'meal-slot-dragover': dragTarget?.day === day.dateStr && dragTarget?.meal === mt.id }
+                  ]"
+                  :draggable="!isLocked"
+                  @dragstart="!isLocked && onDragStart($event, getMealByDate(day.dateStr, mt.id))"
+                  @dragend="onDragEnd"
+                  @dragover.prevent="!isLocked && onPlanDragOver(day.dateStr, mt.id)"
+                  @dragleave="onDragLeave"
+                  @drop.prevent="!isLocked && onPlanDrop(day.dateStr, mt.id)"
                   @click="selectMeal(getMealByDate(day.dateStr, mt.id))">
 
                   <!-- Bild -->
@@ -613,7 +635,11 @@
 
                 <!-- Leere Karte -->
                 <div v-else
-                  class="flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-10 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl">
+                  class="flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-10 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl transition-colors"
+                  :class="{ 'meal-slot-dragover': dragTarget?.day === day.dateStr && dragTarget?.meal === mt.id }"
+                  @dragover.prevent="!isLocked && onPlanDragOver(day.dateStr, mt.id)"
+                  @dragleave="onDragLeave"
+                  @drop.prevent="!isLocked && onPlanDrop(day.dateStr, mt.id)">
                   <span class="text-stone-300 dark:text-stone-600 text-xs">{{ mt.icon }} {{ mt.name }}</span>
                 </div>
               </template>
@@ -2467,6 +2493,7 @@ const weekDays = computed(() => {
     dt.setDate(monday.getDate() + i);
     return {
       short,
+      dateStr: formatDateLocal(dt),
       date: dt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
       fullDate: dt.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }),
       dateObj: dt,
@@ -2867,6 +2894,7 @@ async function onPastWeekChange({ index, weekStart }) {
 // ─── Mobile: Rezept auf Tag planen (aus SuggestionBox) ───
 async function onAssignRecipe({ recipeId, recipeTitle, dayOfWeek, categoryId }) {
   const existingMeal = getMeal(dayOfWeek, categoryId);
+  const planDate = weekDays.value[dayOfWeek]?.dateStr;
 
   // Kein Plan vorhanden → automatisch erstellen
   if (!currentPlan.value) {
@@ -2881,7 +2909,7 @@ async function onAssignRecipe({ recipeId, recipeTitle, dayOfWeek, categoryId }) 
   // Slot frei → direkt hinzufügen
   if (!existingMeal) {
     try {
-      await store.addEntry(currentPlan.value.id, recipeId, dayOfWeek, categoryId);
+      await store.addEntry(currentPlan.value.id, recipeId, dayOfWeek, categoryId, undefined, planDate);
       showSuccess('Rezept hinzugefügt! ✓');
     } catch { /* useApi */ }
     return;
@@ -2905,6 +2933,28 @@ function onDragLeave() {
   dragTarget.value = null;
 }
 
+// ─── Plan-Ansicht Drag & Drop (arbeitet mit dateStr statt dayIdx) ───
+function onPlanDragOver(dateStr, categoryId) {
+  dragTarget.value = { day: dateStr, meal: categoryId };
+}
+
+async function onPlanDrop(dateStr, categoryId) {
+  dragTarget.value = null;
+  const source = dragSource.value;
+  if (!source) return;
+  dragSource.value = null;
+  if (!currentPlan.value) return;
+  // Gleicher Slot? Abbrechen
+  if (source.plan_date === dateStr && source.category_id === categoryId) return;
+  // day_of_week aus dateStr berechnen (0=Mo, 6=So)
+  const dt = new Date(dateStr + 'T12:00:00');
+  const dayOfWeek = (dt.getDay() + 6) % 7;
+  try {
+    await store.moveEntry(currentPlan.value.id, source.id, dayOfWeek, categoryId, dateStr);
+    showSuccess('Mahlzeit verschoben! ↕️');
+  } catch { /* useApi */ }
+}
+
 /** Freie Slots einer bestimmten Kategorie ermitteln */
 function getFreeDays(categoryId) {
   if (!currentPlan.value?.entries) return [0, 1, 2, 3, 4, 5, 6];
@@ -2922,8 +2972,9 @@ async function onDrop(dayIdx, categoryId) {
     dragSource.value = null;
     if (!currentPlan.value) return;
     if (source.day_of_week === dayIdx && source.category_id === categoryId) return;
+    const planDate = weekDays.value[dayIdx]?.dateStr;
     try {
-      await store.moveEntry(currentPlan.value.id, source.id, dayIdx, categoryId);
+      await store.moveEntry(currentPlan.value.id, source.id, dayIdx, categoryId, planDate);
       showSuccess('Mahlzeit verschoben! ↕️');
     } catch { /* useApi */ }
     return;
@@ -2935,6 +2986,7 @@ async function onDrop(dayIdx, categoryId) {
   suggestionDragData.value = null;
 
   const existingMeal = getMeal(dayIdx, categoryId);
+  const planDate = weekDays.value[dayIdx]?.dateStr;
 
   // Fall 2a: Kein Plan vorhanden → Plan automatisch erstellen
   if (!currentPlan.value) {
@@ -2949,7 +3001,7 @@ async function onDrop(dayIdx, categoryId) {
   // Fall 2b: Slot ist frei → direkt hinzufügen
   if (!existingMeal) {
     try {
-      await store.addEntry(currentPlan.value.id, suggestion.recipeId, dayIdx, categoryId);
+      await store.addEntry(currentPlan.value.id, suggestion.recipeId, dayIdx, categoryId, undefined, planDate);
       showSuccess('Rezept hinzugefügt! ✓');
     } catch { /* useApi */ }
     return;
@@ -2983,11 +3035,13 @@ async function conflictMove() {
   const freeDays = getFreeDays(targetMeal);
   if (!freeDays.length) return;
   const freeDay = freeDays[0];
+  const freePlanDate = weekDays.value[freeDay]?.dateStr;
+  const targetPlanDate = weekDays.value[targetDay]?.dateStr;
   try {
     // Bestehendes auf freien Tag verschieben
-    await store.moveEntry(currentPlan.value.id, existingEntry.id, freeDay, targetMeal);
+    await store.moveEntry(currentPlan.value.id, existingEntry.id, freeDay, targetMeal, freePlanDate);
     // Neues Rezept auf den Ziel-Slot setzen
-    await store.addEntry(currentPlan.value.id, recipeId, targetDay, targetMeal);
+    await store.addEntry(currentPlan.value.id, recipeId, targetDay, targetMeal, undefined, targetPlanDate);
     const dayName = weekDays.value[freeDay]?.short || freeDay;
     showSuccess(`Bestehendes nach ${dayName} verschoben, neues Rezept eingefügt! ↕️`);
   } catch { /* useApi */ }
@@ -2997,9 +3051,10 @@ async function conflictMove() {
 async function conflictDelete() {
   const { recipeId, existingEntry, targetDay, targetMeal } = conflictData.value;
   showConflictModal.value = false;
+  const targetPlanDate = weekDays.value[targetDay]?.dateStr;
   try {
     await store.removeEntry(currentPlan.value.id, existingEntry.id);
-    await store.addEntry(currentPlan.value.id, recipeId, targetDay, targetMeal);
+    await store.addEntry(currentPlan.value.id, recipeId, targetDay, targetMeal, undefined, targetPlanDate);
     showSuccess('Bestehendes gelöscht, neues Rezept eingefügt! 🗑️');
   } catch { /* useApi */ }
   conflictData.value = null;
