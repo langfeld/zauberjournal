@@ -12,6 +12,9 @@
   - Gekocht-Markierung (toggle)
 -->
 <template>
+  <div :class="showRecipeBrowser ? 'flex h-full -m-4 lg:-m-6' : ''">
+  <!-- Hauptbereich -->
+  <div :class="showRecipeBrowser ? 'flex-1 overflow-y-auto p-4 lg:p-6 min-w-0' : ''">
   <div class="space-y-6 mx-auto max-w-7xl animate-fade-in">
 
     <!-- ═══════════════════ HEADER ═══════════════════ -->
@@ -23,6 +26,15 @@
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <button @click="showRecipeBrowser = !showRecipeBrowser"
+          :class="['flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-colors',
+            showRecipeBrowser
+              ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900'
+              : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400']"
+          title="Rezepte-Browser ein-/ausblenden">
+          <BookOpen class="w-4 h-4" />
+          <span class="hidden sm:inline">Rezepte</span>
+        </button>
         <button v-if="currentPlan" @click="toggleLockPlan"
           :class="['flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-colors',
             isLocked
@@ -2019,6 +2031,16 @@
       </Transition>
     </Teleport>
   </div>
+  </div><!-- /overflow-y-auto -->
+
+  <!-- ═══════════════════ REZEPT-BROWSER PANEL ═══════════════════ -->
+  <RecipeBrowserPanel
+    :visible="showRecipeBrowser"
+    @close="showRecipeBrowser = false"
+    @recipe-drag-start="onRecipeBrowserDragStart"
+    @recipe-drag-end="onRecipeBrowserDragEnd"
+  />
+  </div><!-- /flex -->
 </template>
 
 <script setup>
@@ -2035,13 +2057,14 @@ import { apiRaw } from '@/composables/useApi.js';
 import { offlineQueue } from '@/services/offlineQueue.js';
 import LoadPlanDialog from '@/components/mealplan/LoadPlanDialog.vue';
 import SuggestionBox from '@/components/mealplan/SuggestionBox.vue';
+import RecipeBrowserPanel from '@/components/mealplan/RecipeBrowserPanel.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import {
   Sparkles, ChevronLeft, ChevronRight, Check, Eye, RefreshCw,
   X, Clock, ChefHat, UtensilsCrossed, Plus, Minus, Star, Trash2,
   LayoutGrid, CalendarDays, Settings, Settings2, FolderOpen, Info,
   Ban, ShieldOff, Lock, Unlock, Users, ChevronDown, FolderSearch, EllipsisVertical, Search, Flame, RotateCcw, Home,
-  ArrowRightLeft, Replace, Move, Trash, List, EyeOff,
+  ArrowRightLeft, Replace, Move, Trash, List, EyeOff, BookOpen,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -2063,8 +2086,12 @@ const { isOnline } = useNetworkStatus();
 // ─── State ───
 const weekOffset = ref(0);
 const VIEW_MODE_KEY = 'mealplan-view-mode';
+const RECIPE_BROWSER_KEY = 'mealplan-recipe-browser';
 const viewMode = ref((() => {
   try { return localStorage.getItem(VIEW_MODE_KEY) || 'plan'; } catch { return 'plan'; }
+})());
+const showRecipeBrowser = ref((() => {
+  try { return localStorage.getItem(RECIPE_BROWSER_KEY) === 'true'; } catch { return false; }
 })());
 const selectedDayIdx = ref(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1); // heute
 const selectedMeal = ref(null);
@@ -2865,6 +2892,19 @@ async function toggleLockPlan() {
 }
 
 // ─── Drag & Drop ───
+// Rezept-Browser Panel: State persistieren
+watch(showRecipeBrowser, (v) => {
+  try { localStorage.setItem(RECIPE_BROWSER_KEY, v ? 'true' : 'false'); } catch {}
+});
+function onRecipeBrowserDragStart(data) {
+  suggestionDragData.value = data; // Gleicher Mechanismus wie SuggestionBox
+  dragSource.value = null;
+}
+function onRecipeBrowserDragEnd() {
+  suggestionDragData.value = null;
+  dragTarget.value = null;
+}
+
 function onDragStart(event, meal) {
   dragSource.value = meal;
   suggestionDragData.value = null;
@@ -2940,19 +2980,66 @@ function onPlanDragOver(dateStr, categoryId) {
 
 async function onPlanDrop(dateStr, categoryId) {
   dragTarget.value = null;
+
+  // Fall 1: Interner Tausch (bestehendes Rezept im Plan ziehen)
   const source = dragSource.value;
-  if (!source) return;
-  dragSource.value = null;
-  if (!currentPlan.value) return;
-  // Gleicher Slot? Abbrechen
-  if (source.plan_date === dateStr && source.category_id === categoryId) return;
-  // day_of_week aus dateStr berechnen (0=Mo, 6=So)
+  if (source) {
+    dragSource.value = null;
+    if (!currentPlan.value) return;
+    // Gleicher Slot? Abbrechen
+    if (source.plan_date === dateStr && source.category_id === categoryId) return;
+    // day_of_week aus dateStr berechnen (0=Mo, 6=So)
+    const dt = new Date(dateStr + 'T12:00:00');
+    const dayOfWeek = (dt.getDay() + 6) % 7;
+    try {
+      await store.moveEntry(currentPlan.value.id, source.id, dayOfWeek, categoryId, dateStr);
+      showSuccess('Mahlzeit verschoben! ↕️');
+    } catch { /* useApi */ }
+    return;
+  }
+
+  // Fall 2: Externer Drop (SuggestionBox oder Rezept-Browser)
+  const suggestion = suggestionDragData.value;
+  if (!suggestion) return;
+  suggestionDragData.value = null;
+
   const dt = new Date(dateStr + 'T12:00:00');
   const dayOfWeek = (dt.getDay() + 6) % 7;
-  try {
-    await store.moveEntry(currentPlan.value.id, source.id, dayOfWeek, categoryId, dateStr);
-    showSuccess('Mahlzeit verschoben! ↕️');
-  } catch { /* useApi */ }
+  const existingMeal = getMealByDate(dateStr, categoryId);
+
+  // Fall 2a: Kein Plan vorhanden → Plan automatisch erstellen
+  if (!currentPlan.value) {
+    try {
+      // weekStart aus dateStr berechnen (Montag der Woche)
+      const d = new Date(dateStr + 'T12:00:00');
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const weekStart = new Date(d.setDate(diff)).toISOString().split('T')[0];
+      const data = await store.addRecipeToPlan(suggestion.recipeId, dayOfWeek, categoryId, weekStart);
+      if (data.plan) currentPlan.value = data.plan;
+      showSuccess('Wochenplan erstellt & Rezept hinzugefügt! 🎉');
+    } catch { /* useApi */ }
+    return;
+  }
+
+  // Fall 2b: Slot ist frei → direkt hinzufügen
+  if (!existingMeal) {
+    try {
+      await store.addEntry(currentPlan.value.id, suggestion.recipeId, dayOfWeek, categoryId, undefined, dateStr);
+      showSuccess('Rezept hinzugefügt! ✓');
+    } catch { /* useApi */ }
+    return;
+  }
+
+  // Fall 2c: Slot belegt → Konflikt-Modal öffnen
+  conflictData.value = {
+    recipeId: suggestion.recipeId,
+    recipeTitle: suggestion.recipeTitle,
+    existingEntry: existingMeal,
+    targetDay: dayOfWeek,
+    targetMeal: categoryId,
+  };
+  showConflictModal.value = true;
 }
 
 /** Freie Slots einer bestimmten Kategorie ermitteln */

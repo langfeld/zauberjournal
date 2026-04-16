@@ -5,9 +5,14 @@
   Kompakte Darstellung eines Rezepts im Grid.
 -->
 <template>
-  <router-link
-    :to="`/recipes/${recipe.id}`"
+  <component
+    :is="draggable ? 'div' : 'router-link'"
+    v-bind="draggable ? {} : { to: `/recipes/${recipe.id}` }"
     class="group flex flex-col h-full bg-white dark:bg-stone-900 hover:shadow-lg border border-stone-200 hover:border-primary-300 dark:border-stone-800 dark:hover:border-primary-700 rounded-xl overflow-hidden transition-all"
+    :class="{ 'cursor-grab active:cursor-grabbing': draggable }"
+    :draggable="draggable"
+    @dragstart="draggable && onDragStart($event)"
+    @dragend="draggable && onDragEnd($event)"
   >
     <!-- Bild -->
     <div class="relative bg-stone-100 dark:bg-stone-800 aspect-4/3 overflow-hidden">
@@ -100,16 +105,35 @@
         </span>
       </div>
     </div>
-  </router-link>
+  </component>
 </template>
 
 <script setup>
 import { Star, Clock, Users, ChefHat, Flame, Home } from 'lucide-vue-next';
 
-defineProps({
+const props = defineProps({
   recipe: { type: Object, required: true },
+  draggable: { type: Boolean, default: false },
 });
-defineEmits(['toggle-favorite']);
+const emit = defineEmits(['toggle-favorite', 'recipe-drag-start', 'recipe-drag-end']);
+
+function onDragStart(event) {
+  const data = {
+    recipeId: props.recipe.id,
+    recipeTitle: props.recipe.title,
+    source: 'recipe-browser',
+  };
+  event.dataTransfer.effectAllowed = 'copy';
+  event.dataTransfer.setData('application/json', JSON.stringify(data));
+  event.dataTransfer.setData('text/plain', props.recipe.id.toString());
+  if (event.target) event.target.style.opacity = '0.5';
+  emit('recipe-drag-start', data);
+}
+
+function onDragEnd(event) {
+  if (event?.target) event.target.style.opacity = '';
+  emit('recipe-drag-end');
+}
 
 const difficultyClasses = {
   leicht: 'bg-green-100 dark:bg-green-900/60 text-green-700 dark:text-green-300',
