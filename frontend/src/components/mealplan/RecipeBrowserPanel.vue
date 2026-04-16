@@ -8,21 +8,23 @@
   - Responsive Grid mit Rezeptkarten
 -->
 <template>
-  <Transition name="panel-slide">
     <div
-      v-if="visible"
-      class="relative flex shrink-0 h-full"
-      :style="{ width: panelWidth + 'px' }"
+      class="relative shrink-0 h-full overflow-hidden"
+      :style="wrapperStyle"
     >
-      <!-- Resize-Handle (linker Rand) -->
+      <!-- Resize-Handle (linker Rand, nur sichtbar wenn offen) -->
       <div
+        v-if="visible"
         class="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group hover:bg-primary-400/30 active:bg-primary-400/50 transition-colors"
         @mousedown.prevent="startResize"
       >
         <div class="absolute left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-8 rounded-full bg-stone-300 dark:bg-stone-600 group-hover:bg-primary-400 group-active:bg-primary-500 transition-colors" />
       </div>
 
-      <aside class="flex flex-col bg-white dark:bg-stone-900 border-l border-stone-200 dark:border-stone-800 w-full h-full overflow-hidden">
+      <aside
+        class="flex flex-col bg-white dark:bg-stone-900 border-l border-stone-200 dark:border-stone-800 h-full overflow-hidden"
+        :style="asideStyle"
+      >
         <!-- Header -->
         <div class="flex items-center justify-between px-4 py-3 border-b border-stone-200 dark:border-stone-800 shrink-0">
           <h3 class="flex items-center gap-2 font-semibold text-stone-800 dark:text-stone-100 text-sm">
@@ -154,7 +156,6 @@
         </div>
       </aside>
     </div>
-  </Transition>
 </template>
 
 <script setup>
@@ -307,17 +308,22 @@ function onDragEnd(event) {
   if (event?.target) event.target.style.opacity = '';
   emit('recipe-drag-end');
 }
-</script>
 
-<style scoped>
-/* Panel-Slide Transition */
-.panel-slide-enter-active,
-.panel-slide-leave-active {
-  transition: width 0.3s ease, opacity 0.3s ease;
-}
-.panel-slide-enter-from,
-.panel-slide-leave-to {
-  width: 0 !important;
-  opacity: 0;
-}
-</style>
+// ─── Panel-Transition (reine CSS-Transitions via Computed Styles) ───
+// Öffnen: Breite + Inhalt gleiten gleichzeitig rein (0.3s)
+// Schließen: Inhalt gleitet erst raus (0.2s), dann schrumpft die Breite (0.2s, 0.2s Delay)
+const wrapperStyle = computed(() => ({
+  width: props.visible ? panelWidth.value + 'px' : '0px',
+  transition: props.visible
+    ? 'width 0.3s ease-out'
+    : 'width 0.2s ease-in 0.2s',
+}));
+
+const asideStyle = computed(() => ({
+  width: panelWidth.value + 'px',
+  transform: props.visible ? 'translateX(0)' : 'translateX(100%)',
+  transition: props.visible
+    ? 'transform 0.3s ease-out'
+    : 'transform 0.2s ease-in',
+}));
+</script>

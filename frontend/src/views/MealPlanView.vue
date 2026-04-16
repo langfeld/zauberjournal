@@ -12,9 +12,9 @@
   - Gekocht-Markierung (toggle)
 -->
 <template>
-  <div :class="showRecipeBrowser ? 'flex absolute inset-0' : ''">
+  <div class="flex absolute inset-0">
   <!-- Hauptbereich -->
-  <div :class="showRecipeBrowser ? 'flex-1 overflow-y-auto p-4 lg:p-6 min-w-0' : ''">
+  <div class="flex-1 overflow-y-auto p-4 lg:p-6 min-w-0">
   <div class="space-y-6 mx-auto max-w-7xl animate-fade-in">
 
     <!-- ═══════════════════ HEADER ═══════════════════ -->
