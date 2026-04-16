@@ -12,7 +12,7 @@
   - Gekocht-Markierung (toggle)
 -->
 <template>
-  <div :class="showRecipeBrowser ? 'flex h-full -m-4 lg:-m-6' : ''">
+  <div :class="showRecipeBrowser ? 'flex absolute inset-0' : ''">
   <!-- Hauptbereich -->
   <div :class="showRecipeBrowser ? 'flex-1 overflow-y-auto p-4 lg:p-6 min-w-0' : ''">
   <div class="space-y-6 mx-auto max-w-7xl animate-fade-in">
@@ -27,7 +27,7 @@
       </div>
       <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
         <button @click="showRecipeBrowser = !showRecipeBrowser"
-          :class="['flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-colors',
+          :class="['hidden lg:flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-colors',
             showRecipeBrowser
               ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900'
               : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 dark:text-stone-400']"

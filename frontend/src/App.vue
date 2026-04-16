@@ -103,7 +103,7 @@
             <AppHeader @toggle-sidebar="toggleSidebar" />
 
             <!-- Seiteninhalt -->
-            <main ref="mainContent" class="flex-1 p-4 lg:p-6 overflow-y-auto">
+            <main ref="mainContent" class="relative flex-1 p-4 lg:p-6 overflow-y-auto">
               <RouterView v-slot="{ Component }">
                 <Transition name="page" mode="out-in">
                   <component :is="Component" />
