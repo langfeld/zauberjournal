@@ -62,13 +62,15 @@
     </div>
 
     <!-- ═══════════════════ NAVIGATION ═══════════════════ -->
-    <div class="flex flex-wrap justify-between items-center gap-3">
+    <div :class="viewMode === 'plan'
+      ? 'flex items-center gap-2'
+      : 'flex flex-wrap justify-between items-center gap-3'">
 
       <!-- Plan-Modus: Plan-Auswahl -->
       <div v-if="viewMode === 'plan'" class="flex items-center gap-2 flex-1 min-w-0">
-        <div v-if="store.plans.length" class="relative">
+        <div v-if="store.plans.length" class="relative min-w-0">
           <button @click="showPlanDropdown = !showPlanDropdown"
-            class="flex items-center gap-2 bg-white dark:bg-stone-800 shadow-sm hover:shadow px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-xl font-medium text-stone-700 dark:text-stone-200 text-sm transition-all max-w-xs">
+            class="flex items-center gap-2 bg-white dark:bg-stone-800 shadow-sm hover:shadow px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-xl font-medium text-stone-700 dark:text-stone-200 text-sm transition-all w-full sm:w-auto sm:max-w-xs">
             <CalendarDays class="w-4 h-4 text-primary-500 shrink-0" />
             <span class="truncate">{{ selectedPlanId ? planLabel(store.plans.find(p => p.id === selectedPlanId)) : 'Plan wählen' }}</span>
             <ChevronDown class="w-3.5 h-3.5 text-stone-400 shrink-0 transition-transform" :class="showPlanDropdown ? 'rotate-180' : ''" />
@@ -79,7 +81,7 @@
           </Transition>
           <!-- Dropdown -->
           <Transition name="fade">
-            <div v-if="showPlanDropdown" class="absolute left-0 top-full mt-1.5 z-30 bg-white dark:bg-stone-800 shadow-xl border border-stone-200 dark:border-stone-700 rounded-xl w-80 max-h-72 overflow-y-auto scrollbar-thin">
+            <div v-if="showPlanDropdown" class="absolute left-0 top-full mt-1.5 z-30 bg-white dark:bg-stone-800 shadow-xl border border-stone-200 dark:border-stone-700 rounded-xl w-72 sm:w-80 max-w-[calc(100vw-2rem)] max-h-72 overflow-y-auto scrollbar-thin">
               <div class="p-1.5">
                 <button v-for="p in store.plans" :key="p.id"
                   @click="onPlanSelect(p.id); showPlanDropdown = false"
@@ -127,7 +129,7 @@
       </template>
 
       <!-- Ansicht-Toggle + Slot-Einstellungen -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 shrink-0">
         <!-- Sichtbare Slots -->
         <div class="relative">
           <button @click="showSlotSettings = !showSlotSettings"
@@ -347,7 +349,7 @@
       </div>
 
       <!-- ═══════ DESKTOP PLAN-ANSICHT ═══════ -->
-      <div class="hidden lg:block space-y-4">
+      <div class="hidden lg:block space-y-6">
         <!-- Hinweis wenn alle Tage gefiltert -->
         <div v-if="filteredPlanDays.length === 0 && planDays.length > 0" class="py-8 text-center">
           <EyeOff class="mx-auto mb-2 w-8 h-8 text-stone-300 dark:text-stone-600" />
@@ -355,65 +357,149 @@
           <button @click="hidePastDays = false" class="mt-2 text-primary-600 dark:text-primary-400 text-sm underline hover:no-underline">Vergangene Tage einblenden</button>
         </div>
 
-        <!-- Single-Slot: Horizontales Grid (Tage nebeneinander) -->
-        <div v-if="isSingleSlot && filteredPlanDays.length" class="gap-3 grid grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
-          <div v-for="day in filteredPlanDays" :key="'ss-' + day.dateStr"
-            class="flex flex-col"
-            :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
-            <!-- Tag-Header kompakt -->
-            <div class="flex items-center gap-2 mb-1.5 px-1">
-              <div class="flex justify-center items-center rounded-lg w-7 h-7 font-bold text-xs shrink-0"
-                :class="isDateToday(day.dateStr)
-                  ? 'bg-primary-500 text-white'
-                  : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300'">
-                {{ day.dateObj.getDate() }}
-              </div>
-              <div class="min-w-0 leading-tight">
-                <div class="font-medium text-xs" :class="isDateToday(day.dateStr) ? 'text-primary-600 dark:text-primary-400' : 'text-stone-600 dark:text-stone-300'">
-                  {{ day.short }}
+        <!-- ── Single-Slot: Tage nebeneinander im Grid ── -->
+        <template v-if="isSingleSlot && filteredPlanDays.length">
+          <!-- Slot-Überschrift -->
+          <div v-if="mealTypes.length === 1" class="flex items-center gap-2">
+            <span class="text-lg">{{ mealTypes[0].icon }}</span>
+            <h3 class="font-semibold text-stone-700 dark:text-stone-200 text-base">{{ mealTypes[0].name }}</h3>
+          </div>
+
+          <div class="gap-x-4 gap-y-8 grid grid-cols-2 xl:grid-cols-4">
+            <div v-for="day in filteredPlanDays" :key="'ss-' + day.dateStr"
+              class="flex flex-col gap-2"
+              :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
+
+              <!-- Tag-Header -->
+              <div class="flex items-center gap-3">
+                <div class="flex justify-center items-center rounded-xl w-10 h-10 font-bold tabular-nums text-lg shrink-0"
+                  :class="isDateToday(day.dateStr)
+                    ? 'bg-primary-500 text-white shadow-sm'
+                    : isDatePast(day.dateStr)
+                      ? 'bg-stone-100 dark:bg-stone-800 text-stone-400 dark:text-stone-500'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200'">
+                  {{ day.dateObj.getDate() }}
+                </div>
+                <div class="min-w-0 leading-tight">
+                  <div class="font-semibold text-sm truncate"
+                    :class="isDateToday(day.dateStr)
+                      ? 'text-primary-600 dark:text-primary-400'
+                      : isDatePast(day.dateStr)
+                        ? 'text-stone-400 dark:text-stone-500'
+                        : 'text-stone-700 dark:text-stone-200'">
+                    {{ day.dateObj.toLocaleDateString('de-DE', { weekday: 'long' }) }}
+                  </div>
+                  <div class="text-xs"
+                    :class="isDateToday(day.dateStr) ? 'text-primary-500/70 dark:text-primary-400/60' : 'text-stone-400 dark:text-stone-500'">
+                    {{ day.dateObj.toLocaleDateString('de-DE', { month: 'long' }) }}
+                  </div>
                 </div>
               </div>
+
+              <!-- Rezeptkarte -->
+              <template v-for="mt in mealTypes" :key="mt.id + '-plan-' + day.dateStr">
+                <div v-if="getMealByDate(day.dateStr, mt.id)"
+                  class="group bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg hover:border-primary-300 dark:hover:border-primary-700"
+                  :class="{ 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked }"
+                  @click="selectMeal(getMealByDate(day.dateStr, mt.id))">
+
+                  <!-- Bild -->
+                  <div class="relative bg-stone-100 dark:bg-stone-800 aspect-4/3 overflow-hidden">
+                    <img v-if="getMealByDate(day.dateStr, mt.id).image_url"
+                      :src="getMealByDate(day.dateStr, mt.id).image_url"
+                      :alt="getMealByDate(day.dateStr, mt.id).recipe_title"
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy" />
+                    <div v-else class="flex justify-center items-center opacity-50 w-full h-full text-5xl">🍽️</div>
+
+                    <!-- Favorit (oben rechts) -->
+                    <button @click.stop="toggleMealFavorite(getMealByDate(day.dateStr, mt.id))"
+                      class="top-2 right-2 absolute bg-white/80 hover:bg-white dark:bg-stone-900/80 dark:hover:bg-stone-900 backdrop-blur-sm p-1.5 rounded-full transition-colors">
+                      <Star class="w-4 h-4" :class="getMealByDate(day.dateStr, mt.id).is_favorite ? 'fill-amber-400 text-amber-400' : 'text-stone-400'" />
+                    </button>
+
+                    <!-- Gekocht (oben links) -->
+                    <div v-if="getMealByDate(day.dateStr, mt.id).is_cooked"
+                      class="top-2 left-2 absolute place-items-center grid rounded-full w-6 h-6 bg-accent-500">
+                      <Check class="w-3.5 h-3.5 text-white" />
+                    </div>
+
+                    <!-- Schwierigkeitsgrad (unten links) -->
+                    <span v-if="getMealByDate(day.dateStr, mt.id).difficulty"
+                      :class="['absolute bottom-2 left-2 px-2 py-0.5 text-xs font-medium rounded-full', difficultyClasses[getMealByDate(day.dateStr, mt.id).difficulty] || difficultyClasses.mittel]">
+                      {{ getMealByDate(day.dateStr, mt.id).difficulty }}
+                    </span>
+
+                    <!-- KI-Badge (unten rechts) -->
+                    <span v-if="getMealByDate(day.dateStr, mt.id).ai_generated"
+                      class="right-2 bottom-2 absolute bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded-full font-medium text-indigo-700 dark:text-indigo-300 text-xs">
+                      🤖 KI
+                    </span>
+                  </div>
+
+                  <!-- Info -->
+                  <div class="p-4">
+                    <h4 class="font-semibold text-stone-800 dark:group-hover:text-primary-400 dark:text-stone-100 group-hover:text-primary-600 truncate transition-colors">
+                      {{ getMealByDate(day.dateStr, mt.id).recipe_title }}
+                    </h4>
+                    <p v-if="getMealByDate(day.dateStr, mt.id).recipe_description" class="mt-1 text-stone-500 dark:text-stone-400 text-sm line-clamp-2">
+                      {{ getMealByDate(day.dateStr, mt.id).recipe_description }}
+                    </p>
+                    <div class="flex items-center gap-3 mt-3 text-stone-500 dark:text-stone-400 text-xs">
+                      <span v-if="getMealByDate(day.dateStr, mt.id).total_time" class="flex items-center gap-1">
+                        <Clock class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).total_time }} Min.
+                      </span>
+                      <span class="flex items-center gap-1 cursor-pointer hover:text-stone-700 dark:hover:text-stone-200"
+                        @click.stop="openServingsPopup(getMealByDate(day.dateStr, mt.id), $event)">
+                        <Users class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }} Port.
+                      </span>
+                      <span v-if="getMealByDate(day.dateStr, mt.id).times_cooked" class="flex items-center gap-1">
+                        <ChefHat class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).times_cooked }}x
+                      </span>
+                      <span v-if="getMealByDate(day.dateStr, mt.id).calories" class="flex items-center gap-1 text-orange-500 dark:text-orange-400">
+                        <Flame class="w-3.5 h-3.5" /> {{ Math.round(getMealByDate(day.dateStr, mt.id).calories) }} kcal
+                      </span>
+                    </div>
+                    <div v-if="getMealByDate(day.dateStr, mt.id).category_names" class="flex flex-wrap gap-1 mt-3">
+                      <span v-for="cat in getMealByDate(day.dateStr, mt.id).category_names.split(',')"
+                        :key="cat"
+                        class="bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded-full text-stone-600 dark:text-stone-400 text-xs">
+                        {{ cat.trim() }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Leere Karte -->
+                <div v-else
+                  class="flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-10 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl">
+                  <span class="text-stone-300 dark:text-stone-600 text-xs">Kein Rezept</span>
+                </div>
+              </template>
             </div>
-            <!-- Rezeptkarte (einziger Slot) -->
-            <template v-for="mt in mealTypes" :key="mt.id + '-ss-' + day.dateStr">
-              <div v-if="getMealByDate(day.dateStr, mt.id)"
-                class="group flex-1 bg-white dark:bg-stone-800 shadow-sm hover:shadow-md border border-stone-200 dark:border-stone-700 rounded-xl overflow-hidden transition-shadow cursor-pointer"
-                @click="selectMeal(getMealByDate(day.dateStr, mt.id))">
-                <div class="relative aspect-4/3 overflow-hidden">
-                  <img v-if="getMealByDate(day.dateStr, mt.id).image_url"
-                    :src="getMealByDate(day.dateStr, mt.id).image_url"
-                    :alt="getMealByDate(day.dateStr, mt.id).recipe_title"
-                    class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    loading="lazy" />
-                  <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-800 opacity-50 w-full h-full text-4xl">🍽️</div>
-                  <div v-if="getMealByDate(day.dateStr, mt.id).is_cooked"
-                    class="top-1.5 right-1.5 absolute place-items-center grid rounded-full w-6 h-6 bg-accent-500">
-                    <Check class="w-3.5 h-3.5 text-white" />
-                  </div>
-                  <div class="bottom-1.5 left-1.5 absolute flex items-center gap-0.5 bg-black/50 px-1.5 py-0.5 rounded text-[0.6rem] text-white">
-                    <Users class="w-2.5 h-2.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }}
-                  </div>
-                </div>
-                <div class="p-2">
-                  <h4 class="font-medium text-stone-800 dark:text-stone-100 text-xs line-clamp-2 leading-tight">
-                    {{ getMealByDate(day.dateStr, mt.id).recipe_title }}
-                  </h4>
-                </div>
+          </div>
+
+          <!-- Nährwerte unter dem Grid -->
+          <div class="gap-x-4 grid grid-cols-2 xl:grid-cols-4 mt-2">
+            <template v-for="day in filteredPlanDays" :key="'ssn-' + day.dateStr">
+              <div v-if="getDayNutritionByDate(day.dateStr)" class="py-1 text-center">
+                <span class="text-[0.65rem] text-stone-400 dark:text-stone-500">
+                  🔥 {{ getDayNutritionByDate(day.dateStr).calories }} kcal
+                  · {{ getDayNutritionByDate(day.dateStr).protein }}g E
+                  · {{ getDayNutritionByDate(day.dateStr).carbs }}g K
+                  · {{ getDayNutritionByDate(day.dateStr).fat }}g F
+                </span>
               </div>
-              <div v-else
-                class="flex-1 flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-6 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl min-h-[120px]">
-                <span class="text-stone-300 dark:text-stone-600 text-xs">{{ mt.icon }} Leer</span>
-              </div>
+              <div v-else class="py-1"></div>
             </template>
           </div>
-        </div>
+        </template>
 
-        <!-- Multi-Slot: Vertikale Tage (Standard) -->
+        <!-- ── Multi-Slot: Tage untereinander, Slots pro Tag in einer Zeile ── -->
         <template v-if="!isSingleSlot" v-for="day in filteredPlanDays" :key="day.dateStr">
-          <!-- Tag-Header + Mahlzeiten -->
-          <div class="plan-day-row" :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
+          <div :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
             <!-- Tag-Header -->
-            <div class="flex items-center gap-3 mb-2">
+            <div class="flex items-center gap-3 mb-3">
               <div class="flex justify-center items-center rounded-xl w-10 h-10 font-bold tabular-nums text-lg shrink-0"
                 :class="isDateToday(day.dateStr)
                   ? 'bg-primary-500 text-white shadow-sm'
@@ -426,7 +512,9 @@
                 <div class="font-semibold text-sm"
                   :class="isDateToday(day.dateStr)
                     ? 'text-primary-600 dark:text-primary-400'
-                    : 'text-stone-700 dark:text-stone-200'">
+                    : isDatePast(day.dateStr)
+                      ? 'text-stone-400 dark:text-stone-500'
+                      : 'text-stone-700 dark:text-stone-200'">
                   {{ day.dateObj.toLocaleDateString('de-DE', { weekday: 'long' }) }}
                 </div>
                 <div class="text-xs"
@@ -435,53 +523,97 @@
                   <span v-if="isDateToday(day.dateStr)" class="bg-primary-600 ml-1 px-1.5 py-0.5 rounded-full font-medium text-[0.6rem] text-white">Heute</span>
                 </div>
               </div>
-              <!-- Nährwerte -->
               <div v-if="getDayNutritionByDate(day.dateStr)" class="ml-auto text-stone-400 dark:text-stone-500 text-xs">
                 🔥 {{ getDayNutritionByDate(day.dateStr).calories }} kcal
+                · {{ getDayNutritionByDate(day.dateStr).protein }}g E
+                · {{ getDayNutritionByDate(day.dateStr).carbs }}g K
               </div>
             </div>
 
             <!-- Mahlzeiten horizontal -->
-            <div class="gap-3 grid grid-cols-2 xl:grid-cols-4 pl-13">
+            <div class="gap-x-4 gap-y-6 grid pl-13"
+              :class="mealTypes.length <= 2 ? 'grid-cols-2 xl:grid-cols-2' : 'grid-cols-2 xl:grid-cols-4'">
               <template v-for="mt in mealTypes" :key="mt.id + '-plan-' + day.dateStr">
-                <!-- Gefüllte Karte -->
                 <div v-if="getMealByDate(day.dateStr, mt.id)"
-                  class="group bg-white dark:bg-stone-800 shadow-sm hover:shadow-md border border-stone-200 dark:border-stone-700 rounded-xl overflow-hidden transition-shadow cursor-pointer"
+                  class="group bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg hover:border-primary-300 dark:hover:border-primary-700"
+                  :class="{ 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked }"
                   @click="selectMeal(getMealByDate(day.dateStr, mt.id))">
-                  <div class="relative aspect-4/3 overflow-hidden">
+
+                  <!-- Bild -->
+                  <div class="relative bg-stone-100 dark:bg-stone-800 aspect-4/3 overflow-hidden">
                     <img v-if="getMealByDate(day.dateStr, mt.id).image_url"
                       :src="getMealByDate(day.dateStr, mt.id).image_url"
                       :alt="getMealByDate(day.dateStr, mt.id).recipe_title"
                       class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       loading="lazy" />
-                    <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-800 opacity-50 w-full h-full text-5xl">🍽️</div>
-                    <!-- Mahlzeit-Badge -->
-                    <div class="top-1.5 left-1.5 absolute bg-black/50 backdrop-blur-sm px-2 py-0.5 rounded-lg text-[0.65rem] text-white">
+                    <div v-else class="flex justify-center items-center opacity-50 w-full h-full text-5xl">🍽️</div>
+
+                    <!-- Mahlzeit-Badge (oben links) -->
+                    <div class="top-2 left-2 absolute bg-black/50 backdrop-blur-sm px-2 py-0.5 rounded-lg font-medium text-white text-xs">
                       {{ mt.icon }} {{ mt.name }}
                     </div>
-                    <!-- Gekocht-Badge -->
+
+                    <!-- Favorit (oben rechts) -->
+                    <button @click.stop="toggleMealFavorite(getMealByDate(day.dateStr, mt.id))"
+                      class="top-2 right-2 absolute bg-white/80 hover:bg-white dark:bg-stone-900/80 dark:hover:bg-stone-900 backdrop-blur-sm p-1.5 rounded-full transition-colors">
+                      <Star class="w-4 h-4" :class="getMealByDate(day.dateStr, mt.id).is_favorite ? 'fill-amber-400 text-amber-400' : 'text-stone-400'" />
+                    </button>
+
+                    <!-- Gekocht (mittig links, unter Mahlzeit-Badge) -->
                     <div v-if="getMealByDate(day.dateStr, mt.id).is_cooked"
-                      class="top-1.5 right-1.5 absolute place-items-center grid rounded-full w-6 h-6 bg-accent-500">
+                      class="top-9 left-2 absolute place-items-center grid rounded-full w-6 h-6 bg-accent-500">
                       <Check class="w-3.5 h-3.5 text-white" />
                     </div>
-                    <!-- Portionen -->
-                    <div class="bottom-1.5 left-1.5 absolute flex items-center gap-0.5 bg-black/50 px-1.5 py-0.5 rounded text-[0.6rem] text-white">
-                      <Users class="w-2.5 h-2.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }}
-                    </div>
+
+                    <!-- Schwierigkeitsgrad (unten links) -->
+                    <span v-if="getMealByDate(day.dateStr, mt.id).difficulty"
+                      :class="['absolute bottom-2 left-2 px-2 py-0.5 text-xs font-medium rounded-full', difficultyClasses[getMealByDate(day.dateStr, mt.id).difficulty] || difficultyClasses.mittel]">
+                      {{ getMealByDate(day.dateStr, mt.id).difficulty }}
+                    </span>
+
+                    <!-- KI-Badge (unten rechts) -->
+                    <span v-if="getMealByDate(day.dateStr, mt.id).ai_generated"
+                      class="right-2 bottom-2 absolute bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded-full font-medium text-indigo-700 dark:text-indigo-300 text-xs">
+                      🤖 KI
+                    </span>
                   </div>
-                  <div class="p-2.5">
-                    <h4 class="font-medium text-stone-800 dark:text-stone-100 text-sm line-clamp-2 leading-tight">
+
+                  <!-- Info -->
+                  <div class="p-4">
+                    <h4 class="font-semibold text-stone-800 dark:group-hover:text-primary-400 dark:text-stone-100 group-hover:text-primary-600 truncate transition-colors">
                       {{ getMealByDate(day.dateStr, mt.id).recipe_title }}
                     </h4>
-                    <div v-if="getMealByDate(day.dateStr, mt.id).total_time" class="flex items-center gap-1 mt-1 text-stone-400 text-xs">
-                      <Clock class="w-3 h-3" /> {{ getMealByDate(day.dateStr, mt.id).total_time }} Min.
+                    <p v-if="getMealByDate(day.dateStr, mt.id).recipe_description" class="mt-1 text-stone-500 dark:text-stone-400 text-sm line-clamp-2">
+                      {{ getMealByDate(day.dateStr, mt.id).recipe_description }}
+                    </p>
+                    <div class="flex items-center gap-3 mt-3 text-stone-500 dark:text-stone-400 text-xs">
+                      <span v-if="getMealByDate(day.dateStr, mt.id).total_time" class="flex items-center gap-1">
+                        <Clock class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).total_time }} Min.
+                      </span>
+                      <span class="flex items-center gap-1 cursor-pointer hover:text-stone-700 dark:hover:text-stone-200"
+                        @click.stop="openServingsPopup(getMealByDate(day.dateStr, mt.id), $event)">
+                        <Users class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }} Port.
+                      </span>
+                      <span v-if="getMealByDate(day.dateStr, mt.id).times_cooked" class="flex items-center gap-1">
+                        <ChefHat class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).times_cooked }}x
+                      </span>
+                      <span v-if="getMealByDate(day.dateStr, mt.id).calories" class="flex items-center gap-1 text-orange-500 dark:text-orange-400">
+                        <Flame class="w-3.5 h-3.5" /> {{ Math.round(getMealByDate(day.dateStr, mt.id).calories) }} kcal
+                      </span>
+                    </div>
+                    <div v-if="getMealByDate(day.dateStr, mt.id).category_names" class="flex flex-wrap gap-1 mt-3">
+                      <span v-for="cat in getMealByDate(day.dateStr, mt.id).category_names.split(',')"
+                        :key="cat"
+                        class="bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded-full text-stone-600 dark:text-stone-400 text-xs">
+                        {{ cat.trim() }}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                <!-- Leerer Slot -->
+                <!-- Leere Karte -->
                 <div v-else
-                  class="flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-6 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl">
+                  class="flex flex-col justify-center items-center bg-stone-50 dark:bg-stone-900/50 py-10 border-2 border-stone-200 dark:border-stone-800 border-dashed rounded-xl">
                   <span class="text-stone-300 dark:text-stone-600 text-xs">{{ mt.icon }} {{ mt.name }}</span>
                 </div>
               </template>
@@ -499,7 +631,7 @@
           <button @click="hidePastDays = false" class="mt-2 text-primary-600 dark:text-primary-400 text-sm underline hover:no-underline">Vergangene Tage einblenden</button>
         </div>
         <template v-for="day in filteredPlanDays" :key="'plan-mob-' + day.dateStr">
-          <div :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
+          <div class="space-y-2" :class="{ 'opacity-50': isDatePast(day.dateStr) && !isDateToday(day.dateStr) }">
             <!-- Tag-Header -->
             <div :class="[
               'flex items-center justify-between px-3 py-2 rounded-xl',
@@ -515,56 +647,67 @@
             </div>
 
             <!-- Mahlzeiten -->
-            <div class="space-y-2 mt-2">
-              <template v-for="mt in mealTypes" :key="mt.id + '-plan-mob-' + day.dateStr">
-                <div v-if="getMealByDate(day.dateStr, mt.id)"
-                  class="mobile-meal-card"
-                  :class="{ 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked }"
-                  @click="router.push('/recipes/' + getMealByDate(day.dateStr, mt.id).recipe_id)">
-                  <div class="relative aspect-[5/3] overflow-hidden">
-                    <img v-if="getMealByDate(day.dateStr, mt.id).image_url"
-                      :src="getMealByDate(day.dateStr, mt.id).image_url"
-                      :alt="getMealByDate(day.dateStr, mt.id).recipe_title"
-                      class="w-full h-full object-cover" loading="lazy" />
-                    <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-800 w-full h-full">
-                      <UtensilsCrossed class="w-10 h-10 text-stone-300 dark:text-stone-600" />
-                    </div>
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
-                    <div class="top-2.5 left-2.5 absolute bg-black/50 backdrop-blur-sm px-2 py-0.5 rounded-lg font-medium text-white text-xs">
-                      {{ mt.icon }} {{ mt.name }}
-                    </div>
-                    <div v-if="getMealByDate(day.dateStr, mt.id).is_cooked"
-                      class="top-2.5 right-2.5 absolute place-items-center grid rounded-full w-7 h-7 bg-accent-500">
-                      <Check class="w-4 h-4 text-white" />
-                    </div>
-                    <div class="right-2.5 bottom-2.5 left-2.5 absolute flex items-center gap-2">
-                      <span class="flex items-center gap-1 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg text-white text-xs">
-                        <Users class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }}
-                      </span>
-                      <span v-if="getMealByDate(day.dateStr, mt.id).total_time"
-                        class="flex items-center gap-1 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg text-white text-xs">
-                        <Clock class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).total_time }} min
-                      </span>
-                    </div>
+            <template v-for="mt in mealTypes" :key="mt.id + '-plan-mob-' + day.dateStr">
+              <!-- Gefüllte Mahlzeit -->
+              <div v-if="getMealByDate(day.dateStr, mt.id)"
+                class="mobile-meal-card"
+                :class="{ 'opacity-55': getMealByDate(day.dateStr, mt.id).is_cooked }"
+                @click="router.push('/recipes/' + getMealByDate(day.dateStr, mt.id).recipe_id)">
+                <!-- Bild -->
+                <div class="relative aspect-[5/3] overflow-hidden">
+                  <img v-if="getMealByDate(day.dateStr, mt.id).image_url"
+                    :src="getMealByDate(day.dateStr, mt.id).image_url"
+                    :alt="getMealByDate(day.dateStr, mt.id).recipe_title"
+                    class="w-full h-full object-cover" loading="lazy" />
+                  <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-800 w-full h-full">
+                    <UtensilsCrossed class="w-10 h-10 text-stone-300 dark:text-stone-600" />
                   </div>
-                  <div class="flex items-center gap-2 px-3.5 py-2.5">
-                    <h4 class="flex-1 font-semibold text-stone-800 dark:text-stone-100 text-base leading-snug">
-                      {{ getMealByDate(day.dateStr, mt.id).recipe_title }}
-                    </h4>
-                    <button @click.stop="selectMeal(getMealByDate(day.dateStr, mt.id))"
-                      class="flex justify-center items-center hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg text-stone-400 dark:text-stone-500 transition-colors shrink-0">
-                      <EllipsisVertical class="w-5 h-5" />
-                    </button>
+                  <!-- Gradient Overlay -->
+                  <div class="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
+                  <!-- Mahlzeit-Badge -->
+                  <div class="top-2.5 left-2.5 absolute bg-black/50 backdrop-blur-sm px-2 py-0.5 rounded-lg font-medium text-white text-xs">
+                    {{ mt.icon }} {{ mt.name }}
+                  </div>
+                  <!-- Gekocht-Badge -->
+                  <div v-if="getMealByDate(day.dateStr, mt.id).is_cooked"
+                    class="top-2.5 right-2.5 absolute place-items-center grid rounded-full w-7 h-7 bg-accent-500">
+                    <Check class="w-4 h-4 text-white" />
+                  </div>
+                  <!-- Info-Badges unten -->
+                  <div class="right-2.5 bottom-2.5 left-2.5 absolute flex items-center gap-2">
+                    <span class="flex items-center gap-1 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg text-white text-xs"
+                      @click.stop="openServingsPopup(getMealByDate(day.dateStr, mt.id), $event)">
+                      <Users class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).servings }}
+                    </span>
+                    <span v-if="getMealByDate(day.dateStr, mt.id).total_time"
+                      class="flex items-center gap-1 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg text-white text-xs">
+                      <Clock class="w-3.5 h-3.5" /> {{ getMealByDate(day.dateStr, mt.id).total_time }} min
+                    </span>
+                    <span v-if="getMealByDate(day.dateStr, mt.id).difficulty"
+                      class="bg-black/50 backdrop-blur-sm ml-auto px-2 py-1 rounded-lg text-white text-xs">
+                      {{ getMealByDate(day.dateStr, mt.id).difficulty }}
+                    </span>
                   </div>
                 </div>
-              </template>
-
-              <!-- Nährwerte (mobile) -->
-              <div v-if="getDayNutritionByDate(day.dateStr)" class="px-2 py-1 text-center">
-                <span class="text-stone-400 dark:text-stone-500 text-xs">
-                  🔥 {{ getDayNutritionByDate(day.dateStr).calories }} kcal · {{ getDayNutritionByDate(day.dateStr).protein }}g E · {{ getDayNutritionByDate(day.dateStr).carbs }}g K · {{ getDayNutritionByDate(day.dateStr).fat }}g F
-                </span>
+                <!-- Titel + Options-Button -->
+                <div class="flex items-center gap-2 px-3.5 py-2.5">
+                  <h4 class="flex-1 font-semibold text-stone-800 dark:text-stone-100 text-base leading-snug">
+                    {{ getMealByDate(day.dateStr, mt.id).recipe_title }}
+                  </h4>
+                  <button @click.stop="selectMeal(getMealByDate(day.dateStr, mt.id))"
+                    class="flex justify-center items-center hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg text-stone-400 dark:text-stone-500 transition-colors shrink-0"
+                    title="Optionen">
+                    <EllipsisVertical class="w-5 h-5" />
+                  </button>
+                </div>
               </div>
+            </template>
+
+            <!-- Nährwerte (mobile) -->
+            <div v-if="getDayNutritionByDate(day.dateStr)" class="px-2 py-1 text-center">
+              <span class="text-stone-400 dark:text-stone-500 text-xs">
+                🔥 {{ getDayNutritionByDate(day.dateStr).calories }} kcal · {{ getDayNutritionByDate(day.dateStr).protein }}g E · {{ getDayNutritionByDate(day.dateStr).carbs }}g K · {{ getDayNutritionByDate(day.dateStr).fat }}g F
+              </span>
             </div>
           </div>
         </template>
