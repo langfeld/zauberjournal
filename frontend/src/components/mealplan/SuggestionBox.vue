@@ -192,14 +192,14 @@
                   <div class="flex gap-1 mb-2 overflow-x-auto scrollbar-hide">
                     <button
                       v-for="mt in dayPickerMealTypes"
-                      :key="mt.key"
-                      @click="dayPickerMealType = mt.key"
+                      :key="mt.id"
+                      @click="dayPickerMealType = mt.id"
                       class="px-2.5 py-1 rounded-lg font-medium text-xs whitespace-nowrap transition-colors"
-                      :class="dayPickerMealType === mt.key
+                      :class="dayPickerMealType === mt.id
                         ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300'
                         : 'bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-700'"
                     >
-                      {{ mt.icon }} {{ mt.label }}
+                      {{ mt.icon }} {{ mt.name }}
                     </button>
                   </div>
                   <!-- Tage als Grid -->
@@ -323,16 +323,11 @@ function onDragEnd(event) {
 // ─── Mobile Tap-Aktions-Dialog ───
 const tapDialog = ref({ show: false, recipe: null });
 const showDayPicker = ref(false);
-const dayPickerMealType = ref('abendessen');
+const dayPickerMealType = ref(null);
 
 const dayPickerMealTypes = computed(() => {
   if (props.mealTypes?.length) return props.mealTypes;
-  return [
-    { key: 'fruehstueck', label: 'Frühstück', icon: '🌅' },
-    { key: 'mittag', label: 'Mittag', icon: '☀️' },
-    { key: 'abendessen', label: 'Abend', icon: '🌙' },
-    { key: 'snack', label: 'Snack', icon: '🍎' },
-  ];
+  return []; // Fallback: leer, wird über Props befüllt
 });
 
 function onRecipeTap(recipe) {
@@ -344,7 +339,7 @@ function onRecipeTap(recipe) {
   // Mobile: Aktions-Dialog anzeigen
   tapDialog.value = { show: true, recipe };
   showDayPicker.value = false;
-  dayPickerMealType.value = dayPickerMealTypes.value[0]?.key || 'abendessen';
+  dayPickerMealType.value = dayPickerMealTypes.value[0]?.id || null;
 }
 
 function closeTapDialog() {
@@ -359,10 +354,10 @@ function openRecipe() {
   closeTapDialog();
 }
 
-function getDaySlotStatus(dayIdx, mealType) {
+function getDaySlotStatus(dayIdx, categoryId) {
   if (!props.currentPlan?.entries) return 'free';
   return props.currentPlan.entries.some(
-    e => e.day_of_week === dayIdx && e.meal_type === mealType
+    e => e.day_of_week === dayIdx && e.category_id === categoryId
   ) ? 'occupied' : 'free';
 }
 
@@ -372,7 +367,7 @@ function assignToDay(dayIdx) {
     recipeId: tapDialog.value.recipe.id,
     recipeTitle: tapDialog.value.recipe.title,
     dayOfWeek: dayIdx,
-    mealType: dayPickerMealType.value,
+    categoryId: dayPickerMealType.value,
   });
   closeTapDialog();
 }

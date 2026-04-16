@@ -58,9 +58,9 @@
     </div>
 
     <!-- Filter-Leiste -->
-    <div class="sm:flex sm:flex-wrap sm:items-center gap-3 grid grid-cols-2 bg-white dark:bg-stone-900 p-4 border border-stone-200 dark:border-stone-800 rounded-xl">
+    <div class="space-y-3 bg-white dark:bg-stone-900 p-4 border border-stone-200 dark:border-stone-800 rounded-xl">
       <!-- Suche -->
-      <div class="relative sm:flex-1 col-span-2 sm:min-w-48">
+      <div class="relative">
         <Search class="top-1/2 left-3 absolute w-4 h-4 text-stone-400 -translate-y-1/2" />
         <input
           v-model="recipesStore.filters.search"
@@ -71,74 +71,91 @@
         />
       </div>
 
-      <!-- Kategorie-Filter -->
-      <select
-        v-model="recipesStore.filters.category"
-        @change="recipesStore.fetchRecipes()"
-        class="bg-stone-50 dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg outline-none w-full sm:w-auto text-stone-700 dark:text-stone-300 text-sm"
-      >
-        <option value="">Alle Kategorien</option>
-        <option v-for="cat in recipesStore.categories" :key="cat.id" :value="cat.name">
-          {{ cat.icon }} {{ cat.name }}
-        </option>
-      </select>
+      <!-- Filter & Anzeige -->
+      <div class="gap-2 grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center">
+        <!-- Kategorie-Filter -->
+        <select
+          v-model="recipesStore.filters.category"
+          @change="recipesStore.fetchRecipes()"
+          class="bg-stone-50 dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg outline-none text-stone-700 dark:text-stone-300 text-sm"
+        >
+          <option value="">Alle Kategorien</option>
+          <option v-for="cat in recipesStore.visibleCategories" :key="cat.id" :value="cat.name">
+            {{ cat.icon }} {{ cat.name }}
+          </option>
+        </select>
 
-      <!-- Sammlungs-Filter -->
-      <select
-        v-model="selectedCollectionFilter"
-        @change="applyCollectionFilter"
-        class="bg-stone-50 dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg outline-none w-full sm:w-auto text-stone-700 dark:text-stone-300 text-sm"
-      >
-        <option value="">Alle Sammlungen</option>
-        <option v-for="col in collectionsStore.collections" :key="col.id" :value="col.id">
-          {{ col.icon }} {{ col.name }} ({{ col.recipe_count ?? 0 }})
-        </option>
-      </select>
+        <!-- Sammlungs-Filter -->
+        <select
+          v-model="selectedCollectionFilter"
+          @change="applyCollectionFilter"
+          class="bg-stone-50 dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg outline-none text-stone-700 dark:text-stone-300 text-sm"
+        >
+          <option value="">Alle Sammlungen</option>
+          <option v-for="col in collectionsStore.collections" :key="col.id" :value="col.id">
+            {{ col.icon }} {{ col.name }} ({{ col.recipe_count ?? 0 }})
+          </option>
+        </select>
 
-      <!-- Schwierigkeit -->
-      <select
-        v-model="recipesStore.filters.difficulty"
-        @change="recipesStore.fetchRecipes()"
-        class="bg-stone-50 dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg outline-none w-full sm:w-auto text-stone-700 dark:text-stone-300 text-sm"
-      >
-        <option value="">Alle Schwierigkeiten</option>
-        <option value="leicht">🟢 Leicht</option>
-        <option value="mittel">🟡 Mittel</option>
-        <option value="schwer">🔴 Schwer</option>
-      </select>
+        <!-- Schwierigkeit -->
+        <select
+          v-model="recipesStore.filters.difficulty"
+          @change="recipesStore.fetchRecipes()"
+          class="bg-stone-50 dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg outline-none text-stone-700 dark:text-stone-300 text-sm"
+        >
+          <option value="">Alle Schwierigkeiten</option>
+          <option value="leicht">Leicht</option>
+          <option value="mittel">Mittel</option>
+          <option value="schwer">Schwer</option>
+        </select>
 
-      <!-- Favoriten-Toggle -->
-      <button
-        @click="toggleFavoriteFilter"
-        :class="[
-          'flex items-center gap-1 px-3 py-2 rounded-lg border text-sm transition-colors',
-          recipesStore.filters.favorite
-            ? 'bg-amber-50 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300'
-            : 'bg-stone-50 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-500',
-        ]"
-      >
-        <Star class="w-4 h-4" :class="{ 'fill-amber-400': recipesStore.filters.favorite }" />
-        Favoriten
-      </button>
+        <!-- Gruppierung -->
+        <select
+          v-if="recipesStore.mealTimeCategories.length"
+          v-model="groupingMode"
+          class="bg-stone-50 dark:bg-stone-800 px-3 py-2 border border-stone-200 dark:border-stone-700 rounded-lg outline-none text-stone-700 dark:text-stone-300 text-sm"
+        >
+          <option value="">Keine Gruppierung</option>
+          <option value="meal-time-multi">Tageszeit (Mehrfach)</option>
+          <option value="meal-time-single">Tageszeit (Einfach)</option>
+        </select>
 
-      <!-- Haushalt-Filter -->
-      <button
-        v-if="householdStore.isInHousehold"
-        @click="toggleHouseholdFilter"
-        :class="[
-          'flex items-center gap-1 px-3 py-2 rounded-lg border text-sm transition-colors',
-          recipesStore.filters.householdOnly
-            ? 'bg-primary-50 dark:bg-primary-900/30 border-primary-300 dark:border-primary-700 text-primary-700 dark:text-primary-300'
-            : 'bg-stone-50 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-500',
-        ]"
-      >
-        <Home class="w-4 h-4" />
-        Haushalt
-      </button>
+        <!-- Divider -->
+        <div class="hidden sm:block w-px h-6 bg-stone-200 dark:bg-stone-700" aria-hidden="true" />
+
+        <!-- Favoriten-Toggle -->
+        <button
+          @click="toggleFavoriteFilter"
+          :class="[
+            'flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition-colors',
+            recipesStore.filters.favorite
+              ? 'bg-amber-50 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300'
+              : 'bg-stone-50 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-500 hover:text-stone-700 dark:hover:text-stone-300',
+          ]"
+        >
+          <Star class="w-4 h-4" :class="{ 'fill-amber-400': recipesStore.filters.favorite }" />
+          Favoriten
+        </button>
+
+        <!-- Haushalt-Filter -->
+        <button
+          v-if="householdStore.isInHousehold"
+          @click="toggleHouseholdFilter"
+          :class="[
+            'flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition-colors',
+            recipesStore.filters.householdOnly
+              ? 'bg-primary-50 dark:bg-primary-900/30 border-primary-300 dark:border-primary-700 text-primary-700 dark:text-primary-300'
+              : 'bg-stone-50 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-500 hover:text-stone-700 dark:hover:text-stone-300',
+          ]"
+        >
+          <Home class="w-4 h-4" />
+          Haushalt
+        </button>
+      </div>
     </div>
 
-    <!-- Rezept-Grid -->
-    <div v-if="recipesStore.recipes.length" class="gap-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <!-- Rezept-Grid (flach, ohne Gruppierung) -->
+    <div v-if="!groupByMealTime && recipesStore.recipes.length" class="gap-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       <div
         v-for="recipe in recipesStore.recipes"
         :key="recipe.id"
@@ -170,6 +187,78 @@
           @toggle-favorite="recipesStore.toggleFavorite(recipe.id)"
         />
       </div>
+    </div>
+
+    <!-- Rezept-Grid (nach Tageszeit gruppiert) -->
+    <div v-if="groupByMealTime && recipesStore.recipes.length" class="space-y-8">
+      <template v-for="group in groupedRecipes" :key="group.name">
+        <section v-if="group.recipes.length">
+          <!-- Gruppen-Header -->
+          <button
+            @click="toggleGroupCollapsed(group.name)"
+            class="flex items-center gap-3 mb-4 w-full text-left group/header"
+          >
+            <span class="text-xl leading-none">{{ group.icon }}</span>
+            <h3 class="font-display font-semibold text-stone-800 dark:text-stone-100 text-lg">
+              {{ group.name }}
+            </h3>
+            <span class="bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded-full text-stone-500 dark:text-stone-400 text-xs font-medium">
+              {{ group.recipes.length }}
+            </span>
+            <div class="flex-1 border-b border-stone-200 dark:border-stone-700" />
+            <ChevronDown
+              class="w-5 h-5 text-stone-400 group-hover/header:text-stone-600 dark:group-hover/header:text-stone-300 transition-transform duration-200"
+              :class="{ '-rotate-90': collapsedGroups.has(group.name) }"
+            />
+          </button>
+
+          <!-- Gruppen-Grid -->
+          <div
+            v-if="!collapsedGroups.has(group.name)"
+            class="gap-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          >
+            <div
+              v-for="(recipe, idx) in group.recipes"
+              :key="`${group.name}-${recipe.id}-${idx}`"
+              class="relative flex flex-col"
+              :class="{ 'cursor-pointer': selectMode }"
+              @click="selectMode ? toggleSelect(recipe.id) : null"
+            >
+              <!-- Auswahl-Checkbox Overlay -->
+              <div
+                v-if="selectMode"
+                class="top-3 left-3 z-10 absolute"
+              >
+                <div
+                  :class="[
+                    'w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all shadow-sm',
+                    selectedIds.has(recipe.id)
+                      ? 'bg-violet-500 border-violet-500 text-white'
+                      : 'bg-white/90 dark:bg-stone-800/90 border-stone-300 dark:border-stone-600'
+                  ]"
+                >
+                  <Check v-if="selectedIds.has(recipe.id)" class="w-4 h-4" />
+                </div>
+              </div>
+              <!-- Auswahl-Ring -->
+              <div v-if="selectMode && selectedIds.has(recipe.id)" class="z-5 absolute inset-0 rounded-xl ring-2 ring-violet-500 ring-offset-2 dark:ring-offset-stone-950 pointer-events-none" />
+              <RecipeCard
+                :recipe="recipe"
+                class="flex-1"
+                :class="{ 'pointer-events-none': selectMode }"
+                @toggle-favorite="recipesStore.toggleFavorite(recipe.id)"
+              />
+              <!-- Badge: andere Tageszeiten -->
+              <div
+                v-if="recipe.otherMealTimes && recipe.otherMealTimes.length"
+                class="px-2 py-1 text-stone-400 dark:text-stone-500 text-xs italic"
+              >
+                auch: {{ recipe.otherMealTimes.join(', ') }}
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
     </div>
 
     <!-- Floating Aktionsleiste bei Auswahl -->
@@ -276,13 +365,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { useRecipesStore } from '@/stores/recipes.js';
 import { useAuthStore } from '@/stores/auth.js';
 import { useCollectionsStore } from '@/stores/collections.js';
 import { useHouseholdStore } from '@/stores/household.js';
-import { Search, Sparkles, Plus, Star, BookOpen, ArrowDownUp, CheckSquare, Square, Check, Trash2, FolderOpen, FolderPlus, FolderMinus, Home } from 'lucide-vue-next';
+import { Search, Sparkles, Plus, Star, BookOpen, CheckSquare, Square, Check, Trash2, FolderOpen, FolderPlus, FolderMinus, Home, ChevronDown } from 'lucide-vue-next';
 import RecipeCard from '@/components/recipes/RecipeCard.vue';
 import RecipeImportModal from '@/components/recipes/RecipeImportModal.vue';
 import CollectionManager from '@/components/collections/CollectionManager.vue';
@@ -307,6 +396,79 @@ const showBatchAddToCollection = ref(false);
 const showBatchRemoveFromCollection = ref(false);
 const batchDeleting = ref(false);
 const batchRemoving = ref(false);
+
+// Tageszeit-Gruppierung
+const groupingMode = ref(''); // '', 'meal-time-multi', 'meal-time-single'
+const groupByMealTime = computed(() => groupingMode.value.startsWith('meal-time'));
+const showDuplicates = computed(() => groupingMode.value === 'meal-time-multi');
+const collapsedGroups = ref(new Set());
+
+/**
+ * Gruppierte Rezepte nach Tageszeit-Kategorien.
+ * Gibt ein Array von Gruppen zurück: { name, icon, color, recipes[] }
+ * Jedes Rezept hat ein zusätzliches `otherMealTimes`-Feld mit den anderen Tageszeiten.
+ */
+const groupedRecipes = computed(() => {
+  if (!groupByMealTime.value) return [];
+
+  const mealTimeNames = recipesStore.mealTimeCategoryNames;
+  const mealTimeCats = recipesStore.mealTimeCategories;
+
+  // Gruppen in der Reihenfolge der sort_order anlegen
+  const groups = mealTimeCats.map(cat => ({
+    name: cat.name,
+    icon: cat.icon,
+    color: cat.color,
+    recipes: [],
+  }));
+  // "Sonstige" für Rezepte ohne Tageszeit-Kategorie
+  groups.push({ name: 'Sonstige', icon: '🍽️', color: '#94a3b8', recipes: [] });
+
+  for (const recipe of recipesStore.recipes) {
+    const catNames = recipe.category_names
+      ? recipe.category_names.split(',').map(n => n.trim())
+      : [];
+
+    const matchingMealTimes = catNames.filter(n => mealTimeNames.has(n));
+
+    if (matchingMealTimes.length === 0) {
+      // Keine Tageszeit → "Sonstige"
+      groups[groups.length - 1].recipes.push({ ...recipe, otherMealTimes: [] });
+    } else if (showDuplicates.value) {
+      // Mehrfach-Modus: Rezept in jede passende Gruppe
+      for (const mt of matchingMealTimes) {
+        const group = groups.find(g => g.name === mt);
+        if (group) {
+          group.recipes.push({
+            ...recipe,
+            otherMealTimes: matchingMealTimes.filter(n => n !== mt),
+          });
+        }
+      }
+    } else {
+      // Einfach-Modus: nur in die erste passende Gruppe (nach sort_order der Kategorie)
+      const firstMatch = mealTimeCats.find(c => matchingMealTimes.includes(c.name));
+      if (firstMatch) {
+        const group = groups.find(g => g.name === firstMatch.name);
+        if (group) {
+          group.recipes.push({
+            ...recipe,
+            otherMealTimes: matchingMealTimes.filter(n => n !== firstMatch.name),
+          });
+        }
+      }
+    }
+  }
+
+  return groups;
+});
+
+function toggleGroupCollapsed(name) {
+  const s = new Set(collapsedGroups.value);
+  if (s.has(name)) s.delete(name);
+  else s.add(name);
+  collapsedGroups.value = s;
+}
 
 // Debounced Suche (300ms Verzögerung)
 let searchTimeout;

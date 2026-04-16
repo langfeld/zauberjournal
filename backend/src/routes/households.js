@@ -949,11 +949,41 @@ export default async function householdRoutes(fastify) {
       }
       }
 
-      // Kategorien
+      // Kategorien — bei gleichnamigen Haushalt-Kategorien mergen statt duplizieren
       if (opts.include_categories !== false) {
-        result.categories = db.prepare(
-          'UPDATE categories SET household_id = ? WHERE user_id = ? AND household_id IS NULL'
-        ).run(householdId, userId).changes;
+        const userCats = db.prepare(
+          'SELECT * FROM categories WHERE user_id = ? AND household_id IS NULL'
+        ).all(userId);
+
+        let catMigrated = 0;
+        for (const cat of userCats) {
+          // Gibt es im Haushalt schon eine Kategorie mit gleichem Namen?
+          const existingInHousehold = db.prepare(
+            `SELECT id FROM categories
+             WHERE household_id = ? AND name = ? COLLATE NOCASE AND id != ?`
+          ).get(householdId, cat.name, cat.id);
+
+          if (existingInHousehold) {
+            // Merge: recipe_categories + meal_plan_entries umhängen, dann Quelle löschen
+            db.prepare(
+              'UPDATE OR IGNORE recipe_categories SET category_id = ? WHERE category_id = ?'
+            ).run(existingInHousehold.id, cat.id);
+            db.prepare(
+              'DELETE FROM recipe_categories WHERE category_id = ?'
+            ).run(cat.id);
+            db.prepare(
+              'UPDATE meal_plan_entries SET category_id = ? WHERE category_id = ?'
+            ).run(existingInHousehold.id, cat.id);
+            db.prepare('DELETE FROM categories WHERE id = ?').run(cat.id);
+          } else {
+            // Normal migrieren
+            db.prepare(
+              'UPDATE categories SET household_id = ? WHERE id = ?'
+            ).run(householdId, cat.id);
+          }
+          catMigrated++;
+        }
+        result.categories = catMigrated;
       }
 
       // Sammlungen
@@ -1013,6 +1043,220 @@ export default async function householdRoutes(fastify) {
     return {
       message: 'Daten erfolgreich migriert!',
       migrated: stats,
+    };
+  });
+
+  // ─────────────────────────────────────────────
+  // GET /:id/categories/compare – Kategorien aller Mitglieder vergleichen
+  // ─────────────────────────────────────────────
+  fastify.get('/:id/categories/compare', {
+    schema: {
+      description: 'Alle Kategorien aller Haushaltsmitglieder zum Vergleich anzeigen',
+      tags: ['Haushalte'],
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const householdId = parseInt(request.params.id);
+    const userId = request.user.id;
+
+    if (!isHouseholdMember(userId, householdId)) {
+      return reply.status(403).send({ error: 'Kein Zugriff auf diesen Haushalt.' });
+    }
+
+    // Mitglieder laden
+    const members = db.prepare(`
+      SELECT u.id, u.username, u.display_name
+      FROM household_members hm
+      JOIN users u ON hm.user_id = u.id
+      WHERE hm.household_id = ?
+      ORDER BY hm.joined_at ASC
+    `).all(householdId);
+
+    // Alle Kategorien aller Mitglieder laden (private + Haushalt-Kategorien)
+    const memberIds = members.map(m => m.id);
+    const placeholders = memberIds.map(() => '?').join(',');
+    const categories = db.prepare(`
+      SELECT c.id, c.name, c.icon, c.color, c.sort_order, c.is_meal_time,
+             c.user_id, c.household_id,
+             u.username, u.display_name
+      FROM categories c
+      JOIN users u ON c.user_id = u.id
+      WHERE c.user_id IN (${placeholders})
+        AND (c.household_id = ? OR c.household_id IS NULL)
+      ORDER BY c.is_meal_time DESC, c.name COLLATE NOCASE, c.user_id
+    `).all(...memberIds, householdId);
+
+    // Gruppierung nach normalisiertem Namen (case-insensitive)
+    const groupMap = new Map();
+    for (const cat of categories) {
+      const key = cat.name.toLowerCase().trim();
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          name: cat.name, // erster gefundener Name als Default
+          categories: [],
+        });
+      }
+      groupMap.get(key).categories.push(cat);
+    }
+
+    // Gruppen bilden
+    const groups = [];
+    for (const [, group] of groupMap) {
+      const cats = group.categories;
+      const memberUserIds = new Set(cats.map(c => c.user_id));
+      const allNames = [...new Set(cats.map(c => c.name))];
+      const allIcons = [...new Set(cats.map(c => c.icon))];
+      const allColors = [...new Set(cats.map(c => c.color))];
+      const hasDuplicates = cats.length > memberIds.length; // Mehr Einträge als Mitglieder = DB-Duplikate
+
+      groups.push({
+        canonical_name: group.name,
+        is_synced: allNames.length === 1 && allIcons.length === 1 && allColors.length === 1
+                   && memberUserIds.size === memberIds.length && !hasDuplicates,
+        has_name_conflict: allNames.length > 1,
+        has_style_conflict: allIcons.length > 1 || allColors.length > 1,
+        has_duplicates: hasDuplicates,
+        missing_for: memberIds.filter(id => !memberUserIds.has(id)),
+        categories: cats.map(c => ({
+          id: c.id,
+          name: c.name,
+          icon: c.icon,
+          color: c.color,
+          sort_order: c.sort_order,
+          is_meal_time: c.is_meal_time,
+          user_id: c.user_id,
+          household_id: c.household_id,
+          owner_name: c.display_name || c.username,
+        })),
+      });
+    }
+
+    // Sortierung: Nicht-synchronisierte zuerst, dann nach Name
+    groups.sort((a, b) => {
+      if (a.is_synced !== b.is_synced) return a.is_synced ? 1 : -1;
+      return a.canonical_name.localeCompare(b.canonical_name, 'de');
+    });
+
+    return { members, groups };
+  });
+
+  // ─────────────────────────────────────────────
+  // POST /:id/categories/merge – Kategorien zusammenfassen
+  // ─────────────────────────────────────────────
+  fastify.post('/:id/categories/merge', {
+    schema: {
+      description: 'Abweichende Kategorien zusammenfassen (Name, Icon, Farbe angleichen)',
+      tags: ['Haushalte'],
+      security: [{ bearerAuth: [] }],
+      body: {
+        type: 'object',
+        required: ['categoryIds', 'targetName'],
+        properties: {
+          categoryIds: {
+            type: 'array',
+            items: { type: 'integer' },
+            minItems: 1,
+            description: 'IDs der Kategorien die angeglichen werden sollen',
+          },
+          targetName: { type: 'string', minLength: 1, maxLength: 50 },
+          targetIcon: { type: ['string', 'null'], maxLength: 10, default: null },
+          targetColor: { type: ['string', 'null'], pattern: '^#[0-9a-fA-F]{6}$', default: null },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const householdId = parseInt(request.params.id);
+    const userId = request.user.id;
+
+    if (!isHouseholdMember(userId, householdId)) {
+      return reply.status(403).send({ error: 'Kein Zugriff auf diesen Haushalt.' });
+    }
+
+    const { categoryIds, targetName, targetIcon, targetColor } = request.body;
+
+    // Mitglieder-IDs laden für Zugriffskontrolle
+    const memberIds = db.prepare(
+      'SELECT user_id FROM household_members WHERE household_id = ?'
+    ).all(householdId).map(m => m.user_id);
+
+    const result = db.transaction(() => {
+      let renamed = 0;
+      let merged = 0;
+
+      for (const catId of categoryIds) {
+        // Kategorie laden und Zugehörigkeit prüfen
+        const cat = db.prepare(
+          'SELECT * FROM categories WHERE id = ?'
+        ).get(catId);
+
+        if (!cat) continue;
+        if (!memberIds.includes(cat.user_id)) continue; // Sicherheit
+        if (cat.household_id !== null && cat.household_id !== householdId) continue;
+
+        // Prüfen ob der User bereits eine Kategorie mit dem Ziel-Namen hat
+        const existing = db.prepare(
+          `SELECT id FROM categories
+           WHERE user_id = ? AND name = ? COLLATE NOCASE AND id != ?
+             AND (household_id = ? OR household_id IS NULL)`
+        ).get(cat.user_id, targetName, catId, householdId);
+
+        if (existing) {
+          // Echter Merge: recipe_categories von cat auf existing umhängen
+          db.prepare(`
+            UPDATE OR IGNORE recipe_categories SET category_id = ? WHERE category_id = ?
+          `).run(existing.id, catId);
+          // Verbleibende Duplikate entfernen (falls UPDATE OR IGNORE übersprungen hat)
+          db.prepare(
+            'DELETE FROM recipe_categories WHERE category_id = ?'
+          ).run(catId);
+
+          // meal_plan_entries von cat auf existing umhängen
+          db.prepare(
+            'UPDATE meal_plan_entries SET category_id = ? WHERE category_id = ?'
+          ).run(existing.id, catId);
+
+          // Alte Kategorie löschen
+          db.prepare('DELETE FROM categories WHERE id = ?').run(catId);
+
+          // Existing-Kategorie auch auf Ziel-Style updaten
+          const updates = [];
+          const vals = [];
+          if (targetIcon) { updates.push('icon = ?'); vals.push(targetIcon); }
+          if (targetColor) { updates.push('color = ?'); vals.push(targetColor); }
+          if (updates.length > 0) {
+            db.prepare(
+              `UPDATE categories SET ${updates.join(', ')} WHERE id = ?`
+            ).run(...vals, existing.id);
+          }
+
+          merged++;
+        } else {
+          // Einfaches Umbenennen/Restylen
+          const updates = ['name = ?'];
+          const vals = [targetName];
+          if (targetIcon) { updates.push('icon = ?'); vals.push(targetIcon); }
+          if (targetColor) { updates.push('color = ?'); vals.push(targetColor); }
+          db.prepare(
+            `UPDATE categories SET ${updates.join(', ')} WHERE id = ?`
+          ).run(...vals, catId);
+          renamed++;
+        }
+      }
+
+      // Aktivitäts-Log
+      db.prepare(`
+        INSERT INTO household_activity (household_id, user_id, action, details)
+        VALUES (?, ?, 'categories:merged', ?)
+      `).run(householdId, userId, JSON.stringify({
+        targetName, renamed, merged, categoryIds,
+      }));
+
+      return { renamed, merged };
+    })();
+
+    return {
+      message: `Kategorien synchronisiert: ${result.renamed} umbenannt, ${result.merged} zusammengeführt.`,
+      ...result,
     };
   });
 

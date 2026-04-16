@@ -7,7 +7,7 @@
 <template>
   <router-link
     :to="`/recipes/${recipe.id}`"
-    class="group block bg-white dark:bg-stone-900 hover:shadow-lg border border-stone-200 hover:border-primary-300 dark:border-stone-800 dark:hover:border-primary-700 rounded-xl overflow-hidden transition-all"
+    class="group flex flex-col h-full bg-white dark:bg-stone-900 hover:shadow-lg border border-stone-200 hover:border-primary-300 dark:border-stone-800 dark:hover:border-primary-700 rounded-xl overflow-hidden transition-all"
   >
     <!-- Bild -->
     <div class="relative bg-stone-100 dark:bg-stone-800 aspect-4/3 overflow-hidden">
@@ -61,7 +61,7 @@
     </div>
 
     <!-- Info -->
-    <div class="p-4">
+    <div class="flex flex-col flex-1 p-4">
       <h3 class="font-semibold text-stone-800 dark:group-hover:text-primary-400 dark:text-stone-100 group-hover:text-primary-600 truncate transition-colors">
         {{ recipe.title }}
       </h3>
@@ -90,7 +90,7 @@
       </div>
 
       <!-- Kategorien -->
-      <div v-if="recipe.category_names" class="flex flex-wrap gap-1 mt-3">
+      <div v-if="recipe.category_names" class="flex flex-wrap gap-1 mt-auto pt-3">
         <span
           v-for="cat in recipe.category_names.split(',')"
           :key="cat"

@@ -59,6 +59,15 @@
           v-if="showUserMenu"
           class="right-0 z-50 absolute bg-white dark:bg-stone-800 shadow-lg mt-2 py-1 border border-stone-200 dark:border-stone-700 rounded-lg w-48"
         >
+          <router-link
+            to="/settings"
+            @click="showUserMenu = false"
+            class="flex items-center gap-2 hover:bg-stone-100 dark:hover:bg-stone-700 px-4 py-2 w-full text-stone-700 dark:text-stone-300 text-sm"
+          >
+            <SlidersHorizontal class="w-4 h-4" />
+            Einstellungen
+          </router-link>
+          <div class="mx-2 my-1 border-stone-200 dark:border-stone-700 border-t" />
           <button
             @click="handleLogout"
             class="flex items-center gap-2 hover:bg-stone-100 dark:hover:bg-stone-700 px-4 py-2 w-full text-stone-700 dark:text-stone-300 text-sm"
@@ -76,7 +85,7 @@
 import { ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.js';
-import { Menu, Search, LogOut } from 'lucide-vue-next';
+import { Menu, Search, LogOut, SlidersHorizontal } from 'lucide-vue-next';
 import ThemeToggle from './ThemeToggle.vue';
 
 defineEmits(['toggle-sidebar']);

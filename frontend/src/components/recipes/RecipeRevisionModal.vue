@@ -130,12 +130,11 @@ const checkingConflict = ref(false);
 const canSubmit = computed(() => instructions.value.trim().length >= 3 && !revising.value);
 
 const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const MEAL_NAMES = { fruehstueck: 'Frühstück', mittag: 'Mittag', abendessen: 'Abendessen', snack: 'Snack' };
 
 function formatConflicts(details) {
   return details.map(d => {
     const day = DAY_NAMES[d.dayOfWeek] || `Tag ${d.dayOfWeek}`;
-    const meal = MEAL_NAMES[d.mealType] || d.mealType;
+    const meal = d.categoryName || 'Mahlzeit';
     return `${day} (${meal})`;
   }).join(', ');
 }

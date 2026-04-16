@@ -47,13 +47,22 @@ export default async function categoriesRoutes(fastify) {
           name: { type: 'string', minLength: 1, maxLength: 50 },
           icon: { type: 'string', maxLength: 10 },
           color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' },
+          is_meal_time: { type: 'boolean' },
         },
       },
     },
   }, async (request, reply) => {
-    const { name, icon, color } = request.body;
+    const { name, icon, color, is_meal_time } = request.body;
     const userId = request.user.id;
     const householdId = request.householdId || null;
+
+    // Duplikat-Check (case-insensitive, scope-aware: gleicher User + gleicher Haushalt-Scope)
+    const existing = db.prepare(
+      `SELECT id FROM categories WHERE user_id = ? AND COALESCE(household_id, 0) = ? AND name = ? COLLATE NOCASE`
+    ).get(userId, householdId || 0, name.trim());
+    if (existing) {
+      return reply.status(409).send({ error: `Kategorie „${name}" existiert bereits.` });
+    }
 
     // Maximale sort_order ermitteln
     const { clause: hhClause, params: hhParams } = householdWhereClause(userId, request.householdId);
@@ -62,13 +71,56 @@ export default async function categoriesRoutes(fastify) {
     ).get(...hhParams);
 
     const result = db.prepare(
-      'INSERT INTO categories (user_id, name, icon, color, sort_order, household_id) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(userId, name, icon || '🍽️', color || '#6366f1', (maxOrder.max || 0) + 1, householdId);
+      'INSERT INTO categories (user_id, name, icon, color, sort_order, household_id, is_meal_time) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(userId, name, icon || '🍽️', color || '#6366f1', (maxOrder.max || 0) + 1, householdId, is_meal_time ? 1 : 0);
 
     return reply.status(201).send({
       id: result.lastInsertRowid,
       message: 'Kategorie erstellt!',
     });
+  });
+
+  /**
+   * PUT /api/categories/reorder
+   * Reihenfolge aller Kategorien aktualisieren (Batch)
+   * Body: { order: [{ id: 1, sort_order: 0 }, ...] }
+   * WICHTIG: Muss VOR /:id registriert werden!
+   */
+  fastify.put('/reorder', {
+    schema: {
+      description: 'Kategorien-Reihenfolge aktualisieren',
+      tags: ['Kategorien'],
+      security: [{ bearerAuth: [] }],
+      body: {
+        type: 'object',
+        required: ['order'],
+        properties: {
+          order: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['id', 'sort_order'],
+              properties: {
+                id: { type: 'integer' },
+                sort_order: { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request) => {
+    const { clause: hhClause, params: hhParams } = householdWhereClause(request.user.id, request.householdId);
+    const stmt = db.prepare(
+      `UPDATE categories SET sort_order = ? WHERE id = ? AND (${hhClause})`
+    );
+    const transaction = db.transaction((items) => {
+      for (const item of items) {
+        stmt.run(item.sort_order, item.id, ...hhParams);
+      }
+    });
+    transaction(request.body.order);
+    return { message: 'Reihenfolge aktualisiert!' };
   });
 
   /**
@@ -78,11 +130,32 @@ export default async function categoriesRoutes(fastify) {
   fastify.put('/:id', {
     schema: { description: 'Kategorie aktualisieren', tags: ['Kategorien'], security: [{ bearerAuth: [] }] },
   }, async (request, reply) => {
-    const { name, icon, color, sort_order } = request.body;
+    const { name, icon, color, sort_order, is_meal_time } = request.body;
+    const categoryId = request.params.id;
     const { clause: hhClause, params: hhParams } = householdWhereClause(request.user.id, request.householdId);
+
+    // Aktuelle Kategorie laden (für Scope-Check + Namensvergleich)
+    const current = db.prepare(
+      `SELECT * FROM categories WHERE id = ? AND (${hhClause})`
+    ).get(categoryId, ...hhParams);
+    if (!current) return reply.status(404).send({ error: 'Kategorie nicht gefunden' });
+
+    // Duplikat-Check NUR bei tatsächlicher Namensänderung, scope-aware
+    if (name && name.trim().toLowerCase() !== current.name.toLowerCase()) {
+      // Nur innerhalb des gleichen Scopes prüfen (user_id + household_id)
+      const existing = db.prepare(
+        `SELECT id FROM categories
+         WHERE user_id = ? AND COALESCE(household_id, 0) = ?
+           AND name = ? COLLATE NOCASE AND id != ?`
+      ).get(current.user_id, current.household_id || 0, name.trim(), categoryId);
+      if (existing) {
+        return reply.status(409).send({ error: `Kategorie „${name}" existiert bereits.` });
+      }
+    }
+
     const result = db.prepare(
-      `UPDATE categories SET name=COALESCE(?,name), icon=COALESCE(?,icon), color=COALESCE(?,color), sort_order=COALESCE(?,sort_order) WHERE id=? AND (${hhClause})`
-    ).run(name, icon, color, sort_order, request.params.id, ...hhParams);
+      `UPDATE categories SET name=COALESCE(?,name), icon=COALESCE(?,icon), color=COALESCE(?,color), sort_order=COALESCE(?,sort_order), is_meal_time=COALESCE(?,is_meal_time) WHERE id=? AND (${hhClause})`
+    ).run(name, icon, color, sort_order, is_meal_time !== undefined ? (is_meal_time ? 1 : 0) : null, categoryId, ...hhParams);
 
     if (result.changes === 0) return reply.status(404).send({ error: 'Kategorie nicht gefunden' });
     return { message: 'Kategorie aktualisiert!' };
@@ -95,9 +168,21 @@ export default async function categoriesRoutes(fastify) {
   fastify.delete('/:id', {
     schema: { description: 'Kategorie löschen', tags: ['Kategorien'], security: [{ bearerAuth: [] }] },
   }, async (request, reply) => {
+    const categoryId = request.params.id;
     const { clause: hhClause, params: hhParams } = householdWhereClause(request.user.id, request.householdId);
-    const result = db.prepare(`DELETE FROM categories WHERE id = ? AND (${hhClause})`).run(request.params.id, ...hhParams);
-    if (result.changes === 0) return reply.status(404).send({ error: 'Kategorie nicht gefunden' });
+
+    // Prüfen ob Kategorie existiert und dem User gehört
+    const cat = db.prepare(`SELECT id FROM categories WHERE id = ? AND (${hhClause})`).get(categoryId, ...hhParams);
+    if (!cat) return reply.status(404).send({ error: 'Kategorie nicht gefunden' });
+
+    // Transaktion: Referenzierende Einträge aufräumen, dann Kategorie löschen
+    // (meal_plan_entries.category_id hat kein ON DELETE CASCADE wegen ALTER TABLE)
+    const deleteCategory = db.transaction(() => {
+      db.prepare('DELETE FROM meal_plan_entries WHERE category_id = ?').run(categoryId);
+      db.prepare('DELETE FROM categories WHERE id = ?').run(categoryId);
+    });
+    deleteCategory();
+
     return { message: 'Kategorie gelöscht' };
   });
 }

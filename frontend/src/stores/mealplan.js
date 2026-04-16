@@ -30,13 +30,6 @@ export const useMealPlanStore = defineStore('mealplan', () => {
 
   const api = useApi();
 
-  const mealTypeLabels = {
-    fruehstueck: '🌅 Frühstück',
-    mittag: '☀️ Mittagessen',
-    abendessen: '🌙 Abendessen',
-    snack: '🍿 Snack',
-  };
-
   /** Wochenplan generieren */
   async function generatePlan(options = {}) {
     generating.value = true;
@@ -155,8 +148,9 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Rezeptvorschläge für einen Slot */
-  async function fetchSuggestions({ dayIdx, mealType, excludeRecipeIds = [], planId = null, search = null }) {
-    const params = new URLSearchParams({ dayIdx, mealType, limit: 8 });
+  async function fetchSuggestions({ dayIdx, categoryId, excludeRecipeIds = [], planId = null, search = null }) {
+    const params = new URLSearchParams({ dayIdx, limit: 8 });
+    if (categoryId) params.set('categoryId', categoryId);
     if (excludeRecipeIds.length) params.set('excludeRecipeIds', excludeRecipeIds.join(','));
     if (planId) params.set('planId', planId);
     if (search) params.set('search', search);
@@ -248,11 +242,11 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Neuen Eintrag in einem leeren Slot hinzufügen */
-  async function addEntry(planId, recipeId, dayOfWeek, mealType, servings) {
+  async function addEntry(planId, recipeId, dayOfWeek, categoryId, servings) {
     const data = await api.post(`/mealplan/${planId}/entry`, {
       recipe_id: recipeId,
       day_of_week: dayOfWeek,
-      meal_type: mealType,
+      category_id: categoryId,
       servings,
     });
     if (currentPlan.value?.entries && data.entry) {
@@ -262,11 +256,11 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Rezept manuell zum Wochenplan hinzufügen (erstellt Plan automatisch) */
-  async function addRecipeToPlan(recipeId, dayOfWeek, mealType, weekStart, servings) {
+  async function addRecipeToPlan(recipeId, dayOfWeek, categoryId, weekStart, servings) {
     const data = await api.post('/mealplan/add-recipe', {
       recipe_id: recipeId,
       day_of_week: dayOfWeek,
-      meal_type: mealType,
+      category_id: categoryId,
       week_start: weekStart,
       servings,
     });
@@ -278,10 +272,10 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Eintrag per Drag & Drop verschieben */
-  async function moveEntry(planId, entryId, dayOfWeek, mealType) {
+  async function moveEntry(planId, entryId, dayOfWeek, categoryId) {
     const data = await api.post(`/mealplan/${planId}/entry/${entryId}/move`, {
       day_of_week: dayOfWeek,
-      meal_type: mealType,
+      category_id: categoryId,
     });
     if (data.plan) currentPlan.value = data.plan;
     return data;
@@ -336,7 +330,6 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   return {
     currentPlan, reasoning, reasoningSource, reasoningLoading, planHistory, availableWeeks, lastWeekRecipes, loading, generating, lastFetched,
     pastWeekRecipes, pastWeekOffset, pastWeekNumber, pastWeekHasPlan, pastWeekIndex, pastWeeksList,
-    mealTypeLabels,
     generatePlan, pollReasoning, fetchCurrentPlan, fetchHistory, fetchAvailableWeeks, fetchLastWeekRecipes, fetchPastWeekRecipes,
     fetchSuggestions, markCooked, updateServings, swapRecipe, addEntry, addRecipeToPlan, moveEntry, removeEntry, deletePlan,
     toggleLock, duplicatePlan,

@@ -34,6 +34,44 @@ export const useRecipesStore = defineStore('recipes', () => {
     [...recipes.value].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5)
   );
 
+  /**
+   * Deduplizierte Kategorien (für Anzeige in Rezept-Views, Filtern, Planer).
+   * Im Haushalt-Kontext können mehrere Mitglieder gleichnamige Kategorien haben.
+   * Hier werden sie nach Name zusammengeführt (eigene bevorzugt, recipe_count addiert).
+   * SettingsView nutzt stattdessen `categories` direkt für die volle Verwaltung.
+   */
+  const visibleCategories = computed(() => {
+    const all = categories.value;
+    if (!all.length) return all;
+    // Prüfen ob Haushalt-Kontext relevant (gibt es categories mit household_id?)
+    const hasHousehold = all.some(c => c.household_id);
+    if (!hasHousehold) return all;
+
+    const deduped = new Map();
+    for (const cat of all) {
+      const key = cat.name.toLowerCase().trim();
+      if (!deduped.has(key)) {
+        deduped.set(key, { ...cat });
+      } else {
+        const existing = deduped.get(key);
+        existing.recipe_count = (existing.recipe_count || 0) + (cat.recipe_count || 0);
+        // Eigene Kategorie bevorzugen (niedrigere user_id = wahrscheinlich eigene)
+        // Da wir die Auth-Info hier nicht haben, bevorzugen wir die mit niedrigerer ID
+        // (die erste im Array, die der Server schon nach user_id sortiert hat)
+      }
+    }
+    return [...deduped.values()];
+  });
+
+  /** Nur Kategorien mit is_meal_time-Flag (sortiert nach sort_order, dedupliziert) */
+  const mealTimeCategories = computed(() =>
+    visibleCategories.value.filter(c => c.is_meal_time).sort((a, b) => a.sort_order - b.sort_order)
+  );
+  /** Namen der Tageszeit-Kategorien als Set (für schnellen Lookup) */
+  const mealTimeCategoryNames = computed(() =>
+    new Set(mealTimeCategories.value.map(c => c.name))
+  );
+
   // --- Actions ---
   const api = useApi();
 
@@ -185,6 +223,27 @@ export const useRecipesStore = defineStore('recipes', () => {
     return data;
   }
 
+  /** Kategorie aktualisieren */
+  async function updateCategory(id, categoryData) {
+    const data = await api.put(`/categories/${id}`, categoryData);
+    await fetchCategories();
+    return data;
+  }
+
+  /** Kategorie löschen */
+  async function deleteCategory(id) {
+    const data = await api.del(`/categories/${id}`);
+    await fetchCategories();
+    return data;
+  }
+
+  /** Kategorien-Reihenfolge aktualisieren (Batch) */
+  async function reorderCategories(order) {
+    const data = await api.put('/categories/reorder', { order });
+    await fetchCategories();
+    return data;
+  }
+
   /** Rezepte als JSON exportieren */
   async function exportRecipes(includeImages = false) {
     const authStore = useAuthStore();
@@ -228,11 +287,13 @@ export const useRecipesStore = defineStore('recipes', () => {
   }
 
   return {
-    recipes, currentRecipe, categories, loading, filters,
+    recipes, currentRecipe, categories, visibleCategories, loading, filters,
     totalRecipes, favoriteRecipes, recentRecipes,
+    mealTimeCategories, mealTimeCategoryNames,
     fetchRecipes, fetchRecipe, createRecipe, updateRecipe, deleteRecipe, deleteRecipesBatch,
     importFromPhoto, importFromText, importFromUrl, toggleFavorite, markAsCooked,
-    fetchCategories, createCategory, exportRecipes, importRecipes,
+    fetchCategories, createCategory, updateCategory, deleteCategory, reorderCategories,
+    exportRecipes, importRecipes,
     checkRevisionConflicts, reviseRecipe,
   };
 }, {

@@ -99,6 +99,12 @@ const routes = [
     meta: { requiresAuth: true, title: 'Haushalt' },
   },
   {
+    path: '/settings',
+    name: 'settings',
+    component: lazyLoad(() => import('@/views/SettingsView.vue')),
+    meta: { requiresAuth: true, title: 'Einstellungen' },
+  },
+  {
     path: '/shared/:token',
     name: 'shared-recipe',
     component: lazyLoad(() => import('@/views/SharedRecipeView.vue')),

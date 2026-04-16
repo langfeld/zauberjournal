@@ -14,7 +14,7 @@
  * - Maximale Größenlimits pro Datentyp
  */
 
-import db, { householdWhereClause } from '../config/database.js';
+import db, { householdWhereClause, getMealTimeCategories } from '../config/database.js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, join } from 'path';
 import sharp from 'sharp';
@@ -76,7 +76,7 @@ export default async function backupRoutes(fastify) {
 
     for (const recipe of recipes) {
       const categories = db.prepare(`
-        SELECT c.name, c.icon, c.color FROM categories c
+        SELECT c.name, c.icon, c.color, c.is_meal_time, c.sort_order FROM categories c
         JOIN recipe_categories rc ON c.id = rc.category_id
         WHERE rc.recipe_id = ?
       `).all(recipe.id);
@@ -162,16 +162,26 @@ export default async function backupRoutes(fastify) {
     const mealPlans = db.prepare(`SELECT * FROM meal_plans WHERE (${hhWhere.clause})`).all(...hhWhere.params);
     const exportedMealPlans = mealPlans.map(plan => {
       const entries = db.prepare(`
-        SELECT mpe.day_of_week, mpe.meal_type, mpe.servings, mpe.is_cooked, r.title as recipe_title
+        SELECT mpe.day_of_week, mpe.meal_type, mpe.category_id, mpe.servings, mpe.is_cooked,
+               r.title as recipe_title, c.name as category_name
         FROM meal_plan_entries mpe
         LEFT JOIN recipes r ON mpe.recipe_id = r.id
+        LEFT JOIN categories c ON mpe.category_id = c.id
         WHERE mpe.meal_plan_id = ?
       `).all(plan.id);
 
       return {
         week_start: plan.week_start,
         created_at: plan.created_at,
-        entries,
+        entries: entries.map(e => ({
+          day_of_week: e.day_of_week,
+          category_name: e.category_name || e.meal_type,
+          servings: e.servings,
+          is_cooked: e.is_cooked,
+          recipe_title: e.recipe_title,
+          // backward-compat: keep meal_type for older importers
+          meal_type: e.meal_type,
+        })),
       };
     });
 
@@ -194,6 +204,11 @@ export default async function backupRoutes(fastify) {
         items,
       };
     });
+
+    // ── Kategorien (standalone, damit is_meal_time/sort_order erhalten bleiben) ──
+    const allCategories = db.prepare(
+      `SELECT name, icon, color, is_meal_time, sort_order FROM categories WHERE (${hhWhere.clause}) ORDER BY sort_order, name`
+    ).all(...hhWhere.params);
 
     // ── Rezept-Sperren ──
     const hhRb = householdWhereClause(userId, householdId, 'rb');
@@ -230,6 +245,7 @@ export default async function backupRoutes(fastify) {
       summary: {
         recipes: exportedRecipes.length,
         collections: exportedCollections.length,
+        categories: allCategories.length,
         pantry_items: pantryItems.length,
         meal_plans: exportedMealPlans.length,
         shopping_lists: exportedShoppingLists.length,
@@ -240,6 +256,7 @@ export default async function backupRoutes(fastify) {
       data: {
         recipes: exportedRecipes,
         collections: exportedCollections,
+        categories: allCategories,
         pantry: pantryItems,
         meal_plans: exportedMealPlans,
         shopping_lists: exportedShoppingLists,
@@ -302,6 +319,7 @@ export default async function backupRoutes(fastify) {
 
     // ── Limits prüfen ──
     const recipes = Array.isArray(data.recipes) ? data.recipes.slice(0, LIMITS.recipes) : [];
+    const standaloneCategories = Array.isArray(data.categories) ? data.categories.slice(0, 200) : [];
     const collections = Array.isArray(data.collections) ? data.collections.slice(0, LIMITS.collections) : [];
     const pantry = Array.isArray(data.pantry) ? data.pantry.slice(0, LIMITS.pantry) : [];
     const mealPlans = Array.isArray(data.meal_plans) ? data.meal_plans.slice(0, LIMITS.mealPlans) : [];
@@ -312,6 +330,7 @@ export default async function backupRoutes(fastify) {
 
     const result = {
       recipes: { imported: 0, skipped: 0, errors: [] },
+      categories: { imported: 0, skipped: 0 },
       collections: { imported: 0, updated: 0, skipped: 0, recipes_linked: 0 },
       pantry: { imported: 0, updated: 0, skipped: 0 },
       meal_plans: { imported: 0, skipped: 0, entries_imported: 0 },
@@ -336,8 +355,8 @@ export default async function backupRoutes(fastify) {
       const key = cat.name.toLowerCase();
       if (catMap.has(key)) return catMap.get(key);
       const res = db.prepare(
-        'INSERT INTO categories (user_id, name, icon, color, household_id) VALUES (?, ?, ?, ?, ?)'
-      ).run(userId, cat.name, cat.icon || '📁', cat.color || '#6366f1', householdId || null);
+        'INSERT INTO categories (user_id, name, icon, color, is_meal_time, sort_order, household_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(userId, cat.name, cat.icon || '📁', cat.color || '#6366f1', cat.is_meal_time ? 1 : 0, parseInt(cat.sort_order) || 0, householdId || null);
       catMap.set(key, res.lastInsertRowid);
       return res.lastInsertRowid;
     }
@@ -352,6 +371,16 @@ export default async function backupRoutes(fastify) {
     // TRANSACTION: Alles oder Nichts
     // ═══════════════════════════════════════════
     const transaction = db.transaction(() => {
+
+      // ── 0. Standalone-Kategorien (damit is_meal_time/sort_order erhalten bleiben) ──
+      for (const cat of standaloneCategories) {
+        if (!cat.name || typeof cat.name !== 'string') {
+          result.categories.skipped++;
+          continue;
+        }
+        getOrCreateCategory(cat);
+        result.categories.imported++;
+      }
 
       // ── 1. Rezepte ──
       for (const recipe of recipes) {
@@ -540,7 +569,30 @@ export default async function backupRoutes(fastify) {
       }
 
       // ── 4. Wochenpläne ──
-      const validMealTypes = new Set(['fruehstueck', 'mittag', 'abendessen', 'snack', 'dinner', 'lunch', 'breakfast']);
+      // Meal-time Kategorien des Users für Auflösung
+      const userMealCategories = getMealTimeCategories(userId);
+      // Map alte meal_type Strings → category_id (backward-compat)
+      const mealTypeAliasMap = {
+        fruehstueck: 'Frühstück', mittag: 'Mittagessen', abendessen: 'Abendessen', snack: 'Snack',
+        breakfast: 'Frühstück', lunch: 'Mittagessen', dinner: 'Abendessen',
+      };
+
+      function resolveCategoryId(entry) {
+        // 1. Direkte category_name aus neuem Export
+        if (entry.category_name) {
+          const cat = userMealCategories.find(c => c.name.toLowerCase() === entry.category_name.toLowerCase());
+          if (cat) return cat.id;
+        }
+        // 2. Alte meal_type Strings → Alias → Kategorie
+        if (entry.meal_type && mealTypeAliasMap[entry.meal_type]) {
+          const alias = mealTypeAliasMap[entry.meal_type];
+          const cat = userMealCategories.find(c => c.name.toLowerCase() === alias.toLowerCase());
+          if (cat) return cat.id;
+        }
+        // 3. Fallback: erste meal-time Kategorie
+        return userMealCategories[0]?.id || null;
+      }
+
       for (const plan of mealPlans) {
         if (!plan.week_start || !/^\d{4}-\d{2}-\d{2}$/.test(plan.week_start)) {
           result.meal_plans.skipped++;
@@ -576,12 +628,17 @@ export default async function backupRoutes(fastify) {
             }
             if (!recipeId) continue;
 
+            const categoryId = resolveCategoryId(entry);
+            // backward-compat: meal_type als denormalisiertes Feld mitschreiben
+            const mealType = entry.meal_type || entry.category_name || 'mittag';
+
             db.prepare(
-              'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?)'
+              'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?, ?)'
             ).run(
               newPlanId, recipeId,
               Math.min(Math.max(parseInt(entry.day_of_week) || 0, 0), 6),
-              validMealTypes.has(entry.meal_type) ? entry.meal_type : 'mittag',
+              mealType,
+              categoryId,
               Math.min(Math.max(parseInt(entry.servings) || 2, 1), 100),
               entry.is_cooked ? 1 : 0,
             );

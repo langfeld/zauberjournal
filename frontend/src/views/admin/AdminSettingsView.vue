@@ -421,7 +421,7 @@ const cleanupRunning = ref(false);
 const cleanupResult = ref(null);
 
 const defaultCategories = [
-  'Frühstück', 'Mittagessen', 'Abendessen', 'Snacks',
+  'Frühstück', 'Mittagessen', 'Abendessen', 'Snack',
   'Desserts', 'Getränke', 'Backen', 'Vegan',
   'Vegetarisch', 'Low Carb', 'Schnell & Einfach',
 ];

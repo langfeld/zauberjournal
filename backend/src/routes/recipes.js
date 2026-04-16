@@ -862,9 +862,11 @@ export default async function recipesRoutes(fastify) {
 
     // Finde fixierte, ungekochte Einträge mit diesem Rezept (aktuelle oder zukünftige Wochen)
     const conflicts = db.prepare(`
-      SELECT mp.week_start, mpe.day_of_week, mpe.meal_type
+      SELECT mp.week_start, mpe.day_of_week, mpe.meal_type, mpe.category_id,
+             c.name as category_name
       FROM meal_plan_entries mpe
       JOIN meal_plans mp ON mpe.meal_plan_id = mp.id
+      LEFT JOIN categories c ON mpe.category_id = c.id
       WHERE mpe.recipe_id = ?
         AND mp.user_id = ?
         AND mp.is_locked = 1
@@ -877,7 +879,8 @@ export default async function recipesRoutes(fastify) {
       conflictDetails: conflicts.map(c => ({
         weekStart: c.week_start,
         dayOfWeek: c.day_of_week,
-        mealType: c.meal_type,
+        categoryId: c.category_id,
+        categoryName: c.category_name || c.meal_type,
       })),
     };
   });
@@ -1370,9 +1373,11 @@ export default async function recipesRoutes(fastify) {
     let pendingMealPlanSync = null;
     if (!mealPlanUpdated) {
       const otherDayEntry = db.prepare(`
-        SELECT mpe.id as entry_id, mpe.day_of_week, mpe.meal_type, mpe.meal_plan_id as plan_id
+        SELECT mpe.id as entry_id, mpe.day_of_week, mpe.meal_type, mpe.category_id,
+               mpe.meal_plan_id as plan_id, c.name as category_name
         FROM meal_plan_entries mpe
         JOIN meal_plans mp ON mpe.meal_plan_id = mp.id
+        LEFT JOIN categories c ON mpe.category_id = c.id
         WHERE mp.user_id = ? AND mp.week_start = ?
           AND mpe.recipe_id = ? AND mpe.is_cooked = 0
         LIMIT 1
@@ -1383,7 +1388,8 @@ export default async function recipesRoutes(fastify) {
           entryId: otherDayEntry.entry_id,
           planId: otherDayEntry.plan_id,
           dayOfWeek: otherDayEntry.day_of_week,
-          mealType: otherDayEntry.meal_type,
+          categoryId: otherDayEntry.category_id,
+          categoryName: otherDayEntry.category_name || otherDayEntry.meal_type,
         };
       }
     }
@@ -1550,10 +1556,10 @@ export default async function recipesRoutes(fastify) {
       }
     }
 
-    // Kategorien des Users laden (eigene + Haushalt)
+    // Kategorien des Users laden (eigene + Haushalt) – case-insensitive Map
     const { clause: catClause, params: catParams } = householdWhereClause(userId, request.householdId);
     const userCategories = db.prepare(`SELECT id, name FROM categories WHERE ${catClause}`).all(...catParams);
-    const catMap = new Map(userCategories.map(c => [c.name, c.id]));
+    const catMap = new Map(userCategories.map(c => [c.name.toLowerCase(), c.id]));
 
     let imported = 0;
     let skipped = 0;
@@ -1627,15 +1633,15 @@ export default async function recipesRoutes(fastify) {
             );
             for (const cat of cats) {
               const catName = typeof cat === 'string' ? cat : cat.name;
-              let catId = catMap.get(catName);
+              let catId = catName ? catMap.get(catName.toLowerCase()) : undefined;
 
               // Kategorie erstellen falls nicht vorhanden
               if (!catId && catName) {
                 const newCat = db.prepare(
-                  'INSERT INTO categories (user_id, name, icon, color) VALUES (?, ?, ?, ?)'
-                ).run(userId, catName, cat.icon || '🍽️', cat.color || '#6366f1');
+                  'INSERT INTO categories (user_id, name, icon, color, household_id) VALUES (?, ?, ?, ?, ?)'
+                ).run(userId, catName, cat.icon || '🍽️', cat.color || '#6366f1', request.householdId || null);
                 catId = newCat.lastInsertRowid;
-                catMap.set(catName, catId);
+                catMap.set(catName.toLowerCase(), catId);
               }
 
               if (catId) insertCat.run(recipeId, catId);

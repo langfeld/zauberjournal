@@ -1114,7 +1114,7 @@ export default async function shoppingRoutes(fastify) {
 
         // Rezept-Referenz hinzufügen (gleiche Einträge desselben Rezepts zusammenfassen)
         const existingRecipe = entry.recipes.find(r =>
-          r.recipe_id === recipe.recipe_id && r.day_of_week === recipe.day_of_week && r.meal_type === recipe.meal_type
+          r.recipe_id === recipe.recipe_id && r.day_of_week === recipe.day_of_week && r.category_id === recipe.category_id
         );
         if (existingRecipe) {
           existingRecipe.needed_amount += (ing.needed_amount || 0);
@@ -1125,6 +1125,11 @@ export default async function shoppingRoutes(fastify) {
             recipe_image_url: recipe.recipe_image_url || null,
             day_of_week: recipe.day_of_week,
             day_label: recipe.day_label,
+            category_id: recipe.category_id,
+            category_name: recipe.category_name,
+            category_icon: recipe.category_icon,
+            category_color: recipe.category_color,
+            // backward-compat
             meal_type: recipe.meal_type,
             meal_type_label: recipe.meal_type_label,
             needed_amount: ing.needed_amount || 0,

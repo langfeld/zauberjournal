@@ -86,7 +86,7 @@
         <h2 class="font-semibold text-stone-800 dark:text-stone-100 text-lg">🏷️ Kategorien</h2>
         <div class="flex flex-wrap gap-2">
           <button
-            v-for="cat in recipesStore.categories"
+            v-for="cat in recipesStore.visibleCategories"
             :key="cat.id"
             type="button"
             @click="toggleCategory(cat.id)"

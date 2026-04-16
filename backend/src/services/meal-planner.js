@@ -14,7 +14,7 @@
  * Optional: KI generiert eine kurze Begründung zum Plan.
  */
 
-import db, { householdWhereClause } from '../config/database.js';
+import db, { householdWhereClause, getMealTimeCategories } from '../config/database.js';
 import { getWeekStart, convertToBaseUnit, scaleIngredient, unitsCompatible } from '../utils/helpers.js';
 import { estimateNutrition } from './recipe-parser.js';
 
@@ -120,43 +120,65 @@ function getUnassignedPantryNames(userId, householdId) {
 }
 
 // ============================================
-// Mahlzeit-Typ → Kategorie-Mapping
+// Kategorie-basiertes Keyword-Matching
 // ============================================
 
 /**
- * Keywords pro Mahlzeit-Typ (lowercase).
- * Wenn eine Rezept-Kategorie eines der Keywords enthält → passt zum Slot.
+ * Keywords pro Mahlzeit-Kategorie-Typ (lowercase).
+ * Werden per Heuristik dem Kategorie-Namen zugeordnet.
  */
-const MEAL_TYPE_KEYWORDS = {
-  fruehstueck: ['frühstück', 'breakfast', 'brunch', 'morgen', 'müsli', 'smoothie', 'porridge', 'oatmeal'],
-  mittag:      ['mittagessen', 'mittag', 'lunch', 'hauptgericht', 'hauptspeise', 'main'],
-  abendessen:  ['abendessen', 'abend', 'dinner', 'hauptgericht', 'hauptspeise', 'main'],
-  snack:       ['snack', 'dessert', 'nachtisch', 'kuchen', 'gebäck', 'süß', 'vorspeise', 'beilage', 'kleinigkeit', 'appetizer'],
+const CATEGORY_KEYWORD_SETS = {
+  breakfast: ['frühstück', 'breakfast', 'brunch', 'morgen', 'müsli', 'smoothie', 'porridge', 'oatmeal'],
+  lunch:     ['mittagessen', 'mittag', 'lunch', 'hauptgericht', 'hauptspeise', 'main'],
+  dinner:    ['abendessen', 'abend', 'dinner', 'hauptgericht', 'hauptspeise', 'main'],
+  snack:     ['snack', 'dessert', 'nachtisch', 'kuchen', 'gebäck', 'süß', 'vorspeise', 'beilage', 'kleinigkeit', 'appetizer'],
 };
 
 /**
  * Title-Keywords als Fallback, wenn ein Rezept gar keine Kategorie hat.
  */
-const TITLE_HINTS = {
-  fruehstueck: ['müsli', 'granola', 'porridge', 'smoothie', 'pancake', 'pfannkuchen', 'brötchen', 'toast', 'omelette', 'rührei', 'frühstück'],
-  snack:       ['kuchen', 'muffin', 'cookie', 'riegel', 'salat', 'dip', 'hummus', 'bruschetta', 'nachos'],
+const TITLE_HINT_SETS = {
+  breakfast: ['müsli', 'granola', 'porridge', 'smoothie', 'pancake', 'pfannkuchen', 'brötchen', 'toast', 'omelette', 'rührei', 'frühstück'],
+  snack:     ['kuchen', 'muffin', 'cookie', 'riegel', 'salat', 'dip', 'hummus', 'bruschetta', 'nachos'],
 };
 
 /**
- * Prüft, ob ein Rezept zu einem bestimmten Mahlzeit-Typ passt.
- * Gibt zurück: 'match' | 'neutral' | 'mismatch'
+ * Ermittelt den Keyword-Set-Typ einer Kategorie anhand ihres Namens.
+ * Gibt 'breakfast' | 'lunch' | 'dinner' | 'snack' | null zurück.
  */
-function mealTypeFitness(recipe, mealType) {
+function getCategoryType(categoryName) {
+  const name = (categoryName || '').toLowerCase();
+  if (name.includes('frühstück') || name.includes('breakfast') || name.includes('morgen') || name.includes('brunch'))
+    return 'breakfast';
+  if (name.includes('mittag') || name.includes('lunch'))
+    return 'lunch';
+  if (name.includes('abend') || name.includes('dinner'))
+    return 'dinner';
+  if (name.includes('snack') || name.includes('dessert') || name.includes('nachtisch') || name.includes('gebäck'))
+    return 'snack';
+  return null; // Unbekannter Typ
+}
+
+/**
+ * Prüft, ob ein Rezept zu einer bestimmten Kategorie passt.
+ * Gibt zurück: 'match' | 'neutral' | 'mismatch'
+ * @param {object} recipe - Rezept mit categories-String
+ * @param {string} categoryName - Name der Tageszeit-Kategorie
+ */
+function categoryFitness(recipe, categoryName) {
+  const catType = getCategoryType(categoryName);
+  if (!catType) return 'neutral'; // Unbekannter Kategorietyp → alles erlaubt
+
   const cats = (recipe.categories || '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
 
-  // Rezept hat Kategorien → prüfen ob eine zum Mahlzeit-Typ passt
+  // Rezept hat Kategorien → prüfen ob eine zum Kategorie-Typ passt
   if (cats.length > 0) {
-    const targetKeywords = MEAL_TYPE_KEYWORDS[mealType] || [];
+    const targetKeywords = CATEGORY_KEYWORD_SETS[catType] || [];
     const hasMatch = cats.some(cat => targetKeywords.some(kw => cat.includes(kw)));
     if (hasMatch) return 'match';
 
     // Prüfen ob Rezept explizit zu einem ANDEREN Typ gehört
-    const otherTypes = Object.entries(MEAL_TYPE_KEYWORDS).filter(([key]) => key !== mealType);
+    const otherTypes = Object.entries(CATEGORY_KEYWORD_SETS).filter(([key]) => key !== catType);
     const belongsToOther = otherTypes.some(([, keywords]) =>
       cats.some(cat => keywords.some(kw => cat.includes(kw)))
     );
@@ -167,23 +189,22 @@ function mealTypeFitness(recipe, mealType) {
 
   // Kein Kategorie → Title als Fallback prüfen
   const titleLower = (recipe.title || '').toLowerCase();
-  const titleHints = TITLE_HINTS[mealType];
+  const titleHints = TITLE_HINT_SETS[catType];
   if (titleHints && titleHints.some(hint => titleLower.includes(hint))) return 'match';
 
   // Frühstück/Snack ohne passende Kategorie oder Title-Hint → eher unpassend
-  if (mealType === 'fruehstueck' || mealType === 'snack') return 'mismatch';
+  if (catType === 'breakfast' || catType === 'snack') return 'mismatch';
 
   // Mittag/Abendessen: Rezepte ohne Kategorie gelten als mögliche Hauptgerichte
   return 'neutral';
 }
 
 /**
- * Harter Filter: Gibt nur Rezepte zurück, die zum Mahlzeit-Typ passen.
+ * Harter Filter: Gibt nur Rezepte zurück, die zur Kategorie passen.
  * 'mismatch'-Rezepte werden komplett ausgeschlossen.
- * Gibt leeres Array zurück, wenn nichts passt → Slot bleibt dann leer.
  */
-function filterByMealType(recipes, mealType) {
-  return recipes.filter(r => mealTypeFitness(r, mealType) !== 'mismatch');
+function filterByCategory(recipes, categoryName) {
+  return recipes.filter(r => categoryFitness(r, categoryName) !== 'mismatch');
 }
 
 // ============================================
@@ -197,9 +218,9 @@ function filterByMealType(recipes, mealType) {
 function scoreRecipe(recipe, context) {
   let score = 100;
 
-  // Mahlzeit-Typ-Passung wird VOR dem Scoring per Filter erledigt (siehe filterByMealType).
+  // Mahlzeit-Typ-Passung wird VOR dem Scoring per Filter erledigt (siehe filterByCategory).
   // Im Score gibt es nur noch einen kleinen Bonus für perfekte Matches.
-  const fitness = mealTypeFitness(recipe, context.mealType || 'mittag');
+  const fitness = categoryFitness(recipe, context.categoryName || 'Mittagessen');
   if (fitness === 'match') score += 30; // Bonus für perfekte Kategorie-Passung
 
   // 1. Rotation: lange nicht gekocht = höherer Score (max +60)
@@ -326,9 +347,10 @@ function weightedRandomPick(recipes, context) {
 /**
  * Liefert bewertete Rezeptvorschläge für einen bestimmten Slot.
  */
-export function getSuggestions(userId, { dayIdx = 0, mealType = 'mittag', excludeRecipeIds = [], planId = null, limit = 8, search = null, householdId = null } = {}) {
+export function getSuggestions(userId, { dayIdx = 0, categoryId = null, categoryName = null, excludeRecipeIds = [], planId = null, limit = 8, search = null, householdId = null } = {}) {
   const isSearch = search && search.trim().length > 0;
   const searchTerm = isSearch ? `%${search.trim().toLowerCase()}%` : null;
+  const effectiveCategoryName = categoryName || 'Mittagessen';
 
   const rWhere = householdWhereClause(userId, householdId, 'r');
   const recipes = db.prepare(`
@@ -375,16 +397,16 @@ export function getSuggestions(userId, { dayIdx = 0, mealType = 'mittag', exclud
       const ingredients = db.prepare('SELECT name FROM ingredients WHERE recipe_id = ?').all(r.id);
       return { ...r, categories: r.category_names || '', ingredientNames: ingredients.map(i => i.name.toLowerCase()) };
     })
-    .filter(r => isSearch || mealTypeFitness(r, mealType) !== 'mismatch') // Harter Filter nur ohne Suche!
+    .filter(r => isSearch || categoryFitness(r, effectiveCategoryName) !== 'mismatch') // Harter Filter nur ohne Suche!
     .map(recipe => {
-      const context = { dayIdx, mealType, usedRecipeIds: new Set(), usedIngredients: new Set(), pantrySet, previousMealCategory: null };
+      const context = { dayIdx, categoryName: effectiveCategoryName, usedRecipeIds: new Set(), usedIngredients: new Set(), pantrySet, previousMealCategory: null };
       const score = scoreRecipe(recipe, context);
 
       // ── Detaillierte Hinweise sammeln ──
       const hints = [];
 
       // Mahlzeit-Typ-Passung
-      if (mealTypeFitness(recipe, mealType) === 'match') {
+      if (categoryFitness(recipe, effectiveCategoryName) === 'match') {
         hints.push({ icon: '✅', text: 'Passt zum Slot' });
       }
 
@@ -471,13 +493,29 @@ export function getSuggestions(userId, { dayIdx = 0, mealType = 'mittag', exclud
 
 /**
  * Default-Verteilung der Kalorien auf Mahlzeiten-Slots (%)
+ * Keyed by position (0=erste Mahlzeit, 1=zweite, etc.)
  */
-const DEFAULT_CALORIE_DISTRIBUTION = {
-  fruehstueck: 25,
-  mittag: 35,
-  abendessen: 30,
-  snack: 10,
-};
+const DEFAULT_CALORIE_SHARES = [25, 35, 30, 10];
+
+/**
+ * Baut eine Kalorien-Verteilung für die gegebenen Kategorien.
+ * Nutzt explizite Distribution wenn vorhanden, sonst positionsbasierte Defaults.
+ * @param {Array} categories - Tageszeit-Kategorien [{id, name, ...}]
+ * @param {Object|null} explicitDistribution - { "categoryId": percent, ... } oder null
+ * @returns {Object} - { categoryId: percent, ... }
+ */
+function buildCalorieDistribution(categories, explicitDistribution) {
+  const dist = {};
+  for (let i = 0; i < categories.length; i++) {
+    const catId = String(categories[i].id);
+    if (explicitDistribution && explicitDistribution[catId] != null) {
+      dist[categories[i].id] = explicitDistribution[catId];
+    } else {
+      dist[categories[i].id] = DEFAULT_CALORIE_SHARES[i] ?? Math.round(100 / categories.length);
+    }
+  }
+  return dist;
+}
 
 /**
  * Stellt sicher, dass alle Rezepte Nährwertdaten haben.
@@ -552,18 +590,24 @@ async function ensureNutritionData(recipes) {
 export async function generateWeekPlan(userId, options = {}) {
   const {
     personCount = 4,
-    mealTypes = ['fruehstueck', 'mittag', 'abendessen'],
+    mealCategories = null,     // Array von Kategorie-Objekten [{id, name, icon, color, sort_order}]
     excludeRecipeIds = [],
     collectionIds = [],       // Nur Rezepte aus diesen Sammlungen
     deduplicateCollections = true, // Rezepte in mehreren Sammlungen nur einmal zählen
     enableAiReasoning = false,    // KI-Begründung generieren?
     activeDays = [0, 1, 2, 3, 4, 5, 6], // Für welche Tage generiert wird
     calorieTarget = null,         // kcal/Tag pro Person (null = deaktiviert)
-    calorieDistribution = null,   // { fruehstueck: 25, mittag: 35, ... } in %
+    calorieDistribution = null,   // { categoryId: percent, ... } in %
     calorieStrictness = 'moderate', // 'soft' | 'moderate' | 'strict'
     householdId = null,
     householdOnly = false,        // Nur Haushalt-Rezepte (keine privaten)
   } = options;
+
+  // Tageszeit-Kategorien: aus Parameter oder aus DB laden
+  const categories = mealCategories || getMealTimeCategories(userId, householdId);
+  if (categories.length === 0) {
+    throw new Error('Keine Tageszeit-Kategorien definiert. Bitte in den Einstellungen mindestens eine Kategorie als Tageszeit markieren.');
+  }
 
   // --- 1. Alle Rezepte des Benutzers laden (ggf. gefiltert nach Sammlungen) ---
 
@@ -641,7 +685,7 @@ export async function generateWeekPlan(userId, options = {}) {
   }
 
   // Effektive Kalorien-Verteilung berechnen
-  const effectiveDistribution = calorieDistribution || DEFAULT_CALORIE_DISTRIBUTION;
+  const effectiveDistribution = buildCalorieDistribution(categories, calorieDistribution);
 
   // --- 3. Vorräte laden (nur ungebundene, nach Abzug der aktuellen Woche) ---
   const pantrySet = getUnassignedPantryNames(userId, householdId);
@@ -652,13 +696,13 @@ export async function generateWeekPlan(userId, options = {}) {
   const usedIngredients = new Set();
   const reasons = [];
 
-  // Tracking: letzte Kategorie pro Mahlzeit-Typ (für Abwechslung)
+  // Tracking: letzte Kategorie pro Tageszeit-Kategorie (für Abwechslung)
   const lastCategoryByMeal = {};
 
-  // Pro Mahlzeit-Typ: passende Rezepte vorab filtern
-  const recipesPerMealType = {};
-  for (const mt of mealTypes) {
-    recipesPerMealType[mt] = filterByMealType(recipeData, mt);
+  // Pro Tageszeit-Kategorie: passende Rezepte vorab filtern
+  const recipesPerCategory = {};
+  for (const cat of categories) {
+    recipesPerCategory[cat.id] = filterByCategory(recipeData, cat.name);
   }
 
   const activeDaySet = new Set(activeDays);
@@ -672,21 +716,21 @@ export async function generateWeekPlan(userId, options = {}) {
 
     const dayMeals = [];
 
-    for (const mealType of mealTypes) {
+    for (const cat of categories) {
       // Nur aus passenden Rezepten wählen
-      const eligible = recipesPerMealType[mealType];
+      const eligible = recipesPerCategory[cat.id];
       if (eligible.length === 0) continue; // Keine passenden Rezepte → Slot leer lassen
 
       const context = {
         dayIdx,
-        mealType,
+        categoryName: cat.name,
         usedRecipeIds,
         usedIngredients,
         pantrySet,
-        previousMealCategory: lastCategoryByMeal[mealType] || null,
+        previousMealCategory: lastCategoryByMeal[cat.id] || null,
         // Kalorien-Kontext (null wenn nicht aktiv)
         calorieTarget: calorieTarget || null,
-        calorieSlotTarget: calorieTarget ? calorieTarget * (effectiveDistribution[mealType] || 25) / 100 : null,
+        calorieSlotTarget: calorieTarget ? calorieTarget * (effectiveDistribution[cat.id] || 25) / 100 : null,
         calorieStrictness: calorieTarget ? calorieStrictness : null,
       };
 
@@ -697,10 +741,11 @@ export async function generateWeekPlan(userId, options = {}) {
       usedRecipeIds.add(recipe.id);
       recipe.ingredientNames.forEach(n => usedIngredients.add(n));
       const firstCat = (recipe.categories || '').split(',')[0]?.trim() || '';
-      lastCategoryByMeal[mealType] = firstCat;
+      lastCategoryByMeal[cat.id] = firstCat;
 
       dayMeals.push({
-        meal_type: mealType,
+        category_id: cat.id,
+        meal_type: cat.name,
         recipe_id: recipe.id,
         recipe_title: recipe.title,
         servings: personCount,
@@ -790,7 +835,7 @@ export function saveMealPlan(userId, weekStart, planData, householdId) {
     'INSERT INTO meal_plans (user_id, week_start, reasoning, household_id) VALUES (?, ?, ?, ?)'
   );
   const insertEntry = db.prepare(
-    'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, servings) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?)'
   );
 
   const transaction = db.transaction(() => {
@@ -801,7 +846,7 @@ export function saveMealPlan(userId, weekStart, planData, householdId) {
       const meals = Array.isArray(day.meals) ? day.meals : [];
       for (const meal of meals) {
         if (!meal.recipe_id) continue;
-        insertEntry.run(planId, meal.recipe_id, dayNum, meal.meal_type, meal.servings || 4);
+        insertEntry.run(planId, meal.recipe_id, dayNum, meal.meal_type, meal.category_id, meal.servings || 4);
       }
     }
 
@@ -825,6 +870,10 @@ export function getMealPlan(userId, weekStart, householdId) {
   const entries = db.prepare(`
     SELECT
       mpe.*,
+      mcat.name as category_name,
+      mcat.icon as category_icon,
+      mcat.color as category_color,
+      mcat.sort_order as category_sort_order,
       r.title as recipe_title,
       r.image_url,
       r.total_time,
@@ -840,12 +889,13 @@ export function getMealPlan(userId, weekStart, householdId) {
       r.fat,
       GROUP_CONCAT(DISTINCT c.name) as category_names
     FROM meal_plan_entries mpe
+    LEFT JOIN categories mcat ON mpe.category_id = mcat.id
     JOIN recipes r ON mpe.recipe_id = r.id
     LEFT JOIN recipe_categories rc ON r.id = rc.recipe_id
     LEFT JOIN categories c ON rc.category_id = c.id
     WHERE mpe.meal_plan_id = ?
     GROUP BY mpe.id
-    ORDER BY mpe.day_of_week, mpe.meal_type
+    ORDER BY mpe.day_of_week, mcat.sort_order, mpe.category_id
   `).all(plan.id);
 
   return { ...plan, entries };

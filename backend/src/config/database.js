@@ -821,10 +821,172 @@ function migrateDatabase() {
   }
 
   // Spalte 'ai_review_issues' in shopping_lists hinzufügen (JSON mit KI-Review-Ergebnissen)
-  const slColsReview = db.prepare("PRAGMA table_info(shopping_lists)").all().map(c => c.name);
+   const slColsReview = db.prepare("PRAGMA table_info(shopping_lists)").all().map(c => c.name);
   if (!slColsReview.includes('ai_review_issues')) {
     db.exec("ALTER TABLE shopping_lists ADD COLUMN ai_review_issues TEXT");
     console.log('  ↳ Migration: shopping_lists.ai_review_issues hinzugefügt');
+  }
+
+  // ============================================
+  // Tageszeit-Flag für Kategorien
+  // ============================================
+  const catColsMealTime = db.prepare("PRAGMA table_info(categories)").all().map(c => c.name);
+  if (!catColsMealTime.includes('is_meal_time')) {
+    db.exec("ALTER TABLE categories ADD COLUMN is_meal_time INTEGER DEFAULT 0");
+    // Standard-Tageszeit-Kategorien markieren (Frühstück, Mittagessen, Abendessen, Snack)
+    db.exec(`
+      UPDATE categories SET is_meal_time = 1
+      WHERE name IN ('Frühstück', 'Mittagessen', 'Abendessen', 'Snack')
+    `);
+    console.log('  ↳ Migration: categories.is_meal_time hinzugefügt');
+  }
+
+  // ============================================
+  // Duplikate in categories bereinigen + UNIQUE Constraint
+  // ============================================
+  // Prüfen ob UNIQUE-Index schon existiert
+  const hasUniqueIdx = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_categories_unique_name'"
+  ).get();
+
+  if (!hasUniqueIdx) {
+    console.log('  ↳ Migration: Duplikate in categories bereinigen...');
+
+    // 1. Duplikate finden (gleicher Name pro user_id + household_id, case-insensitive)
+    //    Behalte jeweils die Kategorie mit der niedrigsten ID (= älteste)
+    const dupes = db.prepare(`
+      SELECT c.id, c.user_id, c.name, c.household_id
+      FROM categories c
+      WHERE c.id NOT IN (
+        SELECT MIN(c2.id)
+        FROM categories c2
+        GROUP BY c2.user_id, LOWER(c2.name), COALESCE(c2.household_id, 0)
+      )
+    `).all();
+
+    if (dupes.length > 0) {
+      console.log(`    → ${dupes.length} Duplikat(e) gefunden, bereinige...`);
+
+      // 2. recipe_categories-Referenzen von Duplikaten auf die "primäre" Kategorie umhängen
+      const findPrimary = db.prepare(`
+        SELECT MIN(id) as primary_id FROM categories
+        WHERE user_id = ? AND LOWER(name) = LOWER(?) AND COALESCE(household_id, 0) = COALESCE(?, 0)
+      `);
+      const updateRef = db.prepare(`
+        UPDATE OR IGNORE recipe_categories SET category_id = ? WHERE category_id = ?
+      `);
+      const deleteOrphanRef = db.prepare(`
+        DELETE FROM recipe_categories WHERE category_id = ?
+      `);
+      const deleteDupe = db.prepare(`DELETE FROM categories WHERE id = ?`);
+
+      for (const dupe of dupes) {
+        const primary = findPrimary.get(dupe.user_id, dupe.name, dupe.household_id);
+        if (primary) {
+          updateRef.run(primary.primary_id, dupe.id);
+          // Falls UPDATE OR IGNORE wegen PK-Konflikt ignoriert wurde, verwaiste Referenzen löschen
+          deleteOrphanRef.run(dupe.id);
+        }
+        deleteDupe.run(dupe.id);
+      }
+      console.log(`    → Duplikate bereinigt`);
+    }
+
+    // 3. UNIQUE Index erstellen (case-insensitive via COLLATE NOCASE)
+    db.exec(`
+      CREATE UNIQUE INDEX idx_categories_unique_name
+      ON categories (user_id, name COLLATE NOCASE, COALESCE(household_id, 0))
+    `);
+    console.log('  ↳ Migration: UNIQUE Index auf categories (user_id, name, household_id) erstellt');
+  }
+
+  // ============================================
+  // meal_plan_entries: meal_type → category_id Vereinigung
+  // ============================================
+  const mpeColsCatId = db.prepare("PRAGMA table_info(meal_plan_entries)").all().map(c => c.name);
+  if (!mpeColsCatId.includes('category_id')) {
+    console.log('  ↳ Migration: meal_plan_entries.category_id hinzufügen + Datenmigration...');
+
+    // 1. Spalte hinzufügen (nullable zunächst)
+    db.exec("ALTER TABLE meal_plan_entries ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    // 2. Mapping von alten meal_type-Strings auf Kategorie-Namen
+    const MEAL_TYPE_TO_CATEGORY = {
+      fruehstueck: 'Frühstück',
+      mittag: 'Mittagessen',
+      abendessen: 'Abendessen',
+      snack: 'Snack',
+    };
+
+    // 3. Alle Einträge mit ihrem meal_plan → user_id laden
+    const entries = db.prepare(`
+      SELECT mpe.id, mpe.meal_type, mp.user_id, mp.household_id
+      FROM meal_plan_entries mpe
+      JOIN meal_plans mp ON mp.id = mpe.meal_plan_id
+      WHERE mpe.category_id IS NULL
+    `).all();
+
+    if (entries.length > 0) {
+      const findCategory = db.prepare(`
+        SELECT id FROM categories
+        WHERE user_id = ? AND LOWER(name) = LOWER(?)
+          AND COALESCE(household_id, 0) = COALESCE(?, 0)
+          AND is_meal_time = 1
+        LIMIT 1
+      `);
+
+      const createCategory = db.prepare(`
+        INSERT OR IGNORE INTO categories (user_id, name, icon, color, sort_order, household_id, is_meal_time)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+      `);
+
+      const updateEntry = db.prepare(`
+        UPDATE meal_plan_entries SET category_id = ? WHERE id = ?
+      `);
+
+      // Default-Werte für fehlende Kategorien
+      const CATEGORY_DEFAULTS = {
+        'Frühstück':    { icon: '🌅', color: '#f59e0b', sort_order: 1 },
+        'Mittagessen':  { icon: '☀️', color: '#10b981', sort_order: 2 },
+        'Abendessen':   { icon: '🌙', color: '#6366f1', sort_order: 3 },
+        'Snack':        { icon: '🍿', color: '#ec4899', sort_order: 4 },
+      };
+
+      let migrated = 0;
+      let created = 0;
+      for (const entry of entries) {
+        const categoryName = MEAL_TYPE_TO_CATEGORY[entry.meal_type] || 'Mittagessen';
+        let cat = findCategory.get(entry.user_id, categoryName, entry.household_id);
+
+        if (!cat) {
+          // Kategorie existiert nicht für diesen User → erstellen
+          const defaults = CATEGORY_DEFAULTS[categoryName] || CATEGORY_DEFAULTS['Mittagessen'];
+          createCategory.run(
+            entry.user_id, categoryName, defaults.icon, defaults.color,
+            defaults.sort_order, entry.household_id
+          );
+          cat = findCategory.get(entry.user_id, categoryName, entry.household_id);
+          created++;
+        }
+
+        if (cat) {
+          updateEntry.run(cat.id, entry.id);
+          migrated++;
+        }
+      }
+      console.log(`    → ${migrated} Einträge migriert, ${created} fehlende Kategorien erstellt`);
+    }
+
+    // 4. Verbleibende NULLs abfangen (sollte nicht vorkommen, aber sicherheitshalber)
+    const nullCount = db.prepare(
+      "SELECT COUNT(*) as cnt FROM meal_plan_entries WHERE category_id IS NULL"
+    ).get().cnt;
+    if (nullCount > 0) {
+      console.warn(`    ⚠ ${nullCount} Einträge ohne category_id — werden entfernt`);
+      db.exec("DELETE FROM meal_plan_entries WHERE category_id IS NULL");
+    }
+
+    console.log('  ↳ Migration: meal_plan_entries.category_id fertig');
   }
 }
 
@@ -833,20 +995,20 @@ function migrateDatabase() {
  */
 export function createDefaultCategories(userId, householdId = null) {
   const defaultCategories = [
-    { name: 'Frühstück', icon: '🌅', color: '#f59e0b', sort_order: 1 },
-    { name: 'Mittagessen', icon: '☀️', color: '#10b981', sort_order: 2 },
-    { name: 'Abendessen', icon: '🌙', color: '#6366f1', sort_order: 3 },
-    { name: 'Snack', icon: '🍿', color: '#ec4899', sort_order: 4 },
-    { name: 'Dessert', icon: '🍰', color: '#f43f5e', sort_order: 5 },
-    { name: 'Getränke', icon: '🥤', color: '#06b6d4', sort_order: 6 },
+    { name: 'Frühstück', icon: '🌅', color: '#f59e0b', sort_order: 1, is_meal_time: 1 },
+    { name: 'Mittagessen', icon: '☀️', color: '#10b981', sort_order: 2, is_meal_time: 1 },
+    { name: 'Abendessen', icon: '🌙', color: '#6366f1', sort_order: 3, is_meal_time: 1 },
+    { name: 'Snack', icon: '🍿', color: '#ec4899', sort_order: 4, is_meal_time: 1 },
+    { name: 'Dessert', icon: '🍰', color: '#f43f5e', sort_order: 5, is_meal_time: 0 },
+    { name: 'Getränke', icon: '🥤', color: '#06b6d4', sort_order: 6, is_meal_time: 0 },
   ];
 
   const stmt = db.prepare(
-    'INSERT INTO categories (user_id, name, icon, color, sort_order, household_id) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO categories (user_id, name, icon, color, sort_order, household_id, is_meal_time) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
 
   for (const cat of defaultCategories) {
-    stmt.run(userId, cat.name, cat.icon, cat.color, cat.sort_order, householdId);
+    stmt.run(userId, cat.name, cat.icon, cat.color, cat.sort_order, householdId, cat.is_meal_time);
   }
 }
 
@@ -907,6 +1069,72 @@ export function householdWhereClause(userId, householdId, tableAlias = '') {
     clause: `${prefix}user_id = ?`,
     params: [userId],
   };
+}
+
+/**
+ * Gibt die Tageszeit-Kategorien (is_meal_time=1) für einen User/Haushalt zurück.
+ * Sortiert nach sort_order. Im Haushalt-Kontext werden Duplikate nach Name dedupliziert
+ * (bevorzugt die eigene Kategorie des anfragenden Users).
+ */
+export function getMealTimeCategories(userId, householdId = null) {
+  const { clause, params } = householdWhereClause(userId, householdId);
+  const categories = db.prepare(`
+    SELECT id, name, icon, color, sort_order, user_id
+    FROM categories
+    WHERE (${clause}) AND is_meal_time = 1
+    ORDER BY sort_order, id
+  `).all(...params);
+
+  // Im Haushalt-Kontext: Duplikate nach Name deduplizieren
+  if (householdId) {
+    const deduped = new Map();
+    for (const cat of categories) {
+      const key = cat.name.toLowerCase().trim();
+      if (!deduped.has(key)) {
+        deduped.set(key, cat);
+      } else if (cat.user_id === userId) {
+        // Eigene Kategorie bevorzugen
+        deduped.set(key, cat);
+      }
+    }
+    return [...deduped.values()].map(({ user_id, ...rest }) => rest);
+  }
+
+  return categories.map(({ user_id, ...rest }) => rest);
+}
+
+/**
+ * Gibt eine einzelne Kategorie zurück und prüft, ob sie zum User/Haushalt gehört
+ * und is_meal_time=1 hat (falls mealTimeOnly=true).
+ *
+ * Im Haushalt-Kontext werden auch private Kategorien anderer Mitglieder akzeptiert,
+ * da diese in geteilten Wochenplänen referenziert werden können.
+ */
+export function getCategoryForUser(categoryId, userId, householdId = null, mealTimeOnly = true) {
+  const mealTimeFilter = mealTimeOnly ? ' AND is_meal_time = 1' : '';
+
+  if (householdId) {
+    // Tolerant: eigene private + Haushalt-Kategorien + private Kategorien anderer Mitglieder
+    return db.prepare(`
+      SELECT id, name, icon, color, sort_order, is_meal_time
+      FROM categories
+      WHERE id = ?${mealTimeFilter}
+        AND (
+          (user_id = ? AND household_id IS NULL)
+          OR household_id = ?
+          OR (household_id IS NULL AND user_id IN (
+            SELECT user_id FROM household_members WHERE household_id = ?
+          ))
+        )
+    `).get(categoryId, userId, householdId, householdId) || null;
+  }
+
+  // Kein Haushalt: nur eigene Kategorien
+  return db.prepare(`
+    SELECT id, name, icon, color, sort_order, is_meal_time
+    FROM categories
+    WHERE id = ? AND user_id = ?${mealTimeFilter}
+  `).get(categoryId, userId) || null;
 }
 
 export default db;

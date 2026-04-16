@@ -11,7 +11,7 @@
 
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
-import db from '../config/database.js';
+import db, { getMealTimeCategories } from '../config/database.js';
 import { readdirSync, statSync, unlinkSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve, join } from 'path';
 import sharp from 'sharp';
@@ -844,9 +844,11 @@ export default async function adminRoutes(fastify) {
               if (!catId && catName) {
                 const catIcon = sanitize(typeof cat === 'object' && cat.icon ? cat.icon : '🍽️', 10);
                 const catColor = (typeof cat === 'object' && /^#[0-9a-fA-F]{6}$/.test(cat.color)) ? cat.color : '#6366f1';
+                const isMealTime = (typeof cat === 'object' && cat.is_meal_time) ? 1 : 0;
+                const sortOrder = (typeof cat === 'object' && typeof cat.sort_order === 'number') ? cat.sort_order : 0;
                 const newCat = db.prepare(
-                  'INSERT INTO categories (user_id, name, icon, color) VALUES (?, ?, ?, ?)'
-                ).run(userId, catName, catIcon, catColor);
+                  'INSERT INTO categories (user_id, name, icon, color, is_meal_time, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
+                ).run(userId, catName, catIcon, catColor, isMealTime, sortOrder);
                 catId = newCat.lastInsertRowid;
                 catMap.set(catName, catId);
               }
@@ -1698,11 +1700,12 @@ export default async function adminRoutes(fastify) {
     let entries = [];
     if (planIds.length) {
       entries = db.prepare(`
-        SELECT mpe.*, r.title as recipe_title
+        SELECT mpe.*, r.title as recipe_title, c.name as category_name
         FROM meal_plan_entries mpe
         LEFT JOIN recipes r ON mpe.recipe_id = r.id
+        LEFT JOIN categories c ON mpe.category_id = c.id
         WHERE mpe.meal_plan_id IN (${planIds.map(() => '?').join(',')})
-        ORDER BY mpe.meal_plan_id, mpe.day_of_week, mpe.meal_type
+        ORDER BY mpe.meal_plan_id, mpe.day_of_week, COALESCE(c.sort_order, 0)
       `).all(...planIds);
     }
 
@@ -1716,6 +1719,7 @@ export default async function adminRoutes(fastify) {
           recipe_title: e.recipe_title,
           recipe_id: e.recipe_id,
           day_of_week: e.day_of_week,
+          category_name: e.category_name || e.meal_type,
           meal_type: e.meal_type,
           servings: e.servings,
           is_cooked: e.is_cooked,
@@ -1784,10 +1788,30 @@ export default async function adminRoutes(fastify) {
 
     const insertPlan = db.prepare('INSERT INTO meal_plans (user_id, week_start) VALUES (?, ?)');
     const insertEntry = db.prepare(
-      'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     const findRecipe = db.prepare('SELECT id FROM recipes WHERE user_id = ? AND LOWER(title) = LOWER(?)');
     const existingPlan = db.prepare('SELECT id FROM meal_plans WHERE user_id = ? AND week_start = ?');
+
+    // Kategorie-Auflösung für meal plan entries
+    const userMealCategories = getMealTimeCategories(userId);
+    const mealTypeAliasMap = {
+      fruehstueck: 'Frühstück', mittag: 'Mittagessen', abendessen: 'Abendessen', snack: 'Snack',
+      breakfast: 'Frühstück', lunch: 'Mittagessen', dinner: 'Abendessen',
+    };
+
+    function resolveCategoryId(entry) {
+      if (entry.category_name) {
+        const cat = userMealCategories.find(c => c.name.toLowerCase() === entry.category_name.toLowerCase());
+        if (cat) return cat.id;
+      }
+      if (entry.meal_type && mealTypeAliasMap[entry.meal_type]) {
+        const alias = mealTypeAliasMap[entry.meal_type];
+        const cat = userMealCategories.find(c => c.name.toLowerCase() === alias.toLowerCase());
+        if (cat) return cat.id;
+      }
+      return userMealCategories[0]?.id || null;
+    }
 
     const transaction = db.transaction(() => {
       for (const plan of importData.plans) {
@@ -1799,7 +1823,6 @@ export default async function adminRoutes(fastify) {
         imported++;
 
         if (plan.entries?.length) {
-          const validMealTypes = new Set(['fruehstueck', 'mittag', 'abendessen', 'snack']);
           const entries = plan.entries.slice(0, 50);
           for (const entry of entries) {
             let recipeId = entry.recipe_id;
@@ -1809,9 +1832,10 @@ export default async function adminRoutes(fastify) {
             }
             if (!recipeId) continue;
             const dayOfWeek = Math.min(Math.max(parseInt(entry.day_of_week) || 0, 0), 6);
-            const mealType = validMealTypes.has(entry.meal_type) ? entry.meal_type : 'mittag';
+            const categoryId = resolveCategoryId(entry);
+            const mealType = entry.meal_type || entry.category_name || 'mittag';
             const servings = Math.min(Math.max(parseInt(entry.servings) || 2, 1), 100);
-            insertEntry.run(planId, recipeId, dayOfWeek, mealType, servings, entry.is_cooked ? 1 : 0);
+            insertEntry.run(planId, recipeId, dayOfWeek, mealType, categoryId, servings, entry.is_cooked ? 1 : 0);
             entriesImported++;
           }
         }
@@ -2377,7 +2401,7 @@ export default async function adminRoutes(fastify) {
       const exportedRecipes = [];
       for (const recipe of recipes) {
         const categories = db.prepare(`
-          SELECT c.name, c.icon, c.color FROM categories c
+          SELECT c.name, c.icon, c.color, c.is_meal_time, c.sort_order FROM categories c
           JOIN recipe_categories rc ON c.id = rc.category_id WHERE rc.recipe_id = ?
         `).all(recipe.id);
         const ingredients = db.prepare(
@@ -2429,10 +2453,25 @@ export default async function adminRoutes(fastify) {
       const mealPlans = db.prepare('SELECT * FROM meal_plans WHERE user_id = ?').all(userId);
       const exportedMealPlans = mealPlans.map(plan => {
         const entries = db.prepare(`
-          SELECT mpe.day_of_week, mpe.meal_type, mpe.servings, mpe.is_cooked, r.title as recipe_title
-          FROM meal_plan_entries mpe LEFT JOIN recipes r ON mpe.recipe_id = r.id WHERE mpe.meal_plan_id = ?
+          SELECT mpe.day_of_week, mpe.meal_type, mpe.category_id, mpe.servings, mpe.is_cooked,
+                 r.title as recipe_title, c.name as category_name
+          FROM meal_plan_entries mpe
+          LEFT JOIN recipes r ON mpe.recipe_id = r.id
+          LEFT JOIN categories c ON mpe.category_id = c.id
+          WHERE mpe.meal_plan_id = ?
         `).all(plan.id);
-        return { week_start: plan.week_start, created_at: plan.created_at, entries };
+        return {
+          week_start: plan.week_start,
+          created_at: plan.created_at,
+          entries: entries.map(e => ({
+            day_of_week: e.day_of_week,
+            category_name: e.category_name || e.meal_type,
+            meal_type: e.meal_type,
+            servings: e.servings,
+            is_cooked: e.is_cooked,
+            recipe_title: e.recipe_title,
+          })),
+        };
       });
 
       // Shopping Lists
@@ -2530,7 +2569,7 @@ export default async function adminRoutes(fastify) {
     function getOrCreateCategory(cat) {
       const key = cat.name.toLowerCase();
       if (catMap.has(key)) return catMap.get(key);
-      const res = db.prepare('INSERT INTO categories (user_id, name, icon, color) VALUES (?, ?, ?, ?)').run(userId, cat.name, cat.icon || '📁', cat.color || '#6366f1');
+      const res = db.prepare('INSERT INTO categories (user_id, name, icon, color, is_meal_time, sort_order) VALUES (?, ?, ?, ?, ?, ?)').run(userId, cat.name, cat.icon || '📁', cat.color || '#6366f1', cat.is_meal_time ? 1 : 0, parseInt(cat.sort_order) || 0);
       catMap.set(key, res.lastInsertRowid);
       return res.lastInsertRowid;
     }
@@ -2665,7 +2704,25 @@ export default async function adminRoutes(fastify) {
       }
 
       // 4. Wochenpläne
-      const validMealTypes = new Set(['fruehstueck', 'mittag', 'abendessen', 'snack', 'dinner', 'lunch', 'breakfast']);
+      const adminUserMealCategories = getMealTimeCategories(userId);
+      const adminMealTypeAliasMap = {
+        fruehstueck: 'Frühstück', mittag: 'Mittagessen', abendessen: 'Abendessen', snack: 'Snack',
+        breakfast: 'Frühstück', lunch: 'Mittagessen', dinner: 'Abendessen',
+      };
+
+      function adminResolveCategoryId(entry) {
+        if (entry.category_name) {
+          const cat = adminUserMealCategories.find(c => c.name.toLowerCase() === entry.category_name.toLowerCase());
+          if (cat) return cat.id;
+        }
+        if (entry.meal_type && adminMealTypeAliasMap[entry.meal_type]) {
+          const alias = adminMealTypeAliasMap[entry.meal_type];
+          const cat = adminUserMealCategories.find(c => c.name.toLowerCase() === alias.toLowerCase());
+          if (cat) return cat.id;
+        }
+        return adminUserMealCategories[0]?.id || null;
+      }
+
       for (const plan of mealPlans) {
         if (!plan.week_start || !/^\d{4}-\d{2}-\d{2}$/.test(plan.week_start)) { result.meal_plans.skipped++; continue; }
         const ex = db.prepare('SELECT id FROM meal_plans WHERE user_id = ? AND week_start = ?').get(userId, plan.week_start);
@@ -2692,9 +2749,10 @@ export default async function adminRoutes(fastify) {
             if (!rid && e.recipe_id) { const c = db.prepare('SELECT id FROM recipes WHERE id = ? AND user_id = ?').get(e.recipe_id, userId); if (c) rid = c.id; }
             if (!rid) continue;
             const dayOfWeek = Math.min(Math.max(parseInt(e.day_of_week) || 0, 0), 6);
-            const mealType = validMealTypes.has(e.meal_type) ? e.meal_type : 'mittag';
+            const categoryId = adminResolveCategoryId(e);
+            const mealType = e.meal_type || e.category_name || 'mittag';
             const servings = Math.min(Math.max(parseInt(e.servings) || 2, 1), 100);
-            db.prepare('INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?)').run(planId, rid, dayOfWeek, mealType, servings, e.is_cooked ? 1 : 0);
+            db.prepare('INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, meal_type, category_id, servings, is_cooked) VALUES (?, ?, ?, ?, ?, ?, ?)').run(planId, rid, dayOfWeek, mealType, categoryId, servings, e.is_cooked ? 1 : 0);
             result.meal_plans.entries_imported++;
           }
         }

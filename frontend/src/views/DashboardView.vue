@@ -48,7 +48,7 @@
           >
             <div class="bg-stone-200 dark:bg-stone-700 rounded-lg w-12 h-12 overflow-hidden shrink-0">
               <img v-if="meal.image_url" :src="meal.image_url" :alt="meal.recipe_title" class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-              <div v-else class="flex justify-center items-center w-full h-full text-lg">{{ mealTypeEmojis[meal.meal_type] || '🍽️' }}</div>
+              <div v-else class="flex justify-center items-center w-full h-full text-lg">{{ meal.category_icon || '🍽️' }}</div>
             </div>
             <div class="flex-1 min-w-0">
               <p class="font-medium text-stone-800 dark:group-hover:text-primary-400 dark:text-stone-200 group-hover:text-primary-600 text-sm truncate transition-colors">{{ meal.recipe_title }}</p>
@@ -215,13 +215,7 @@ async function fetchDashboardFeed() {
   feedLoading.value = false;
 }
 
-// Emojis für Mahlzeiten-Typen
-const mealTypeEmojis = {
-  fruehstueck: '🌅',
-  mittag: '☀️',
-  abendessen: '🌙',
-  snack: '🍿',
-};
+// Emojis für Mahlzeiten-Typen (dynamisch aus Einträgen via category_icon)
 
 // Statistik-Daten
 const stats = computed(() => [

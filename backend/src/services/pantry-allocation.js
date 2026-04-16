@@ -13,14 +13,8 @@ import db, { householdWhereClause } from '../config/database.js';
 import { scaleIngredient, convertToBaseUnit, normalizeUnit, unitsCompatible } from '../utils/helpers.js';
 import { estimateConversion } from '../utils/ingredient-weights.js';
 
-/** Meal-Type Sortierungswert (chronologische Reihenfolge) */
-const MEAL_TYPE_ORDER = { fruehstueck: 0, mittag: 1, abendessen: 2, snack: 3 };
-
 /** Wochentag-Label (Montag = 0) */
 const DAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-
-/** Meal-Type Label */
-const MEAL_TYPE_LABELS = { fruehstueck: 'Frühstück', mittag: 'Mittagessen', abendessen: 'Abendessen', snack: 'Snack' };
 
 /**
  * Berechnet die Pantry-Allokation für einen Wochenplan.
@@ -36,14 +30,18 @@ export function calculatePantryAllocations(userId, mealPlanId, householdId) {
     `SELECT * FROM pantry WHERE (${pWhere.clause}) AND (amount > 0 OR is_permanent = 1) ORDER BY category, ingredient_name`
   ).all(...pWhere.params);
 
-  // 2. Ungekochte Einträge laden (mit Rezept-Infos)
+  // 2. Ungekochte Einträge laden (mit Rezept-Infos + Kategorie)
   const entries = db.prepare(`
-    SELECT mpe.id as entry_id, mpe.recipe_id, mpe.day_of_week, mpe.meal_type, mpe.servings as planned_servings,
-           r.title as recipe_title, r.image_url as recipe_image_url, r.servings as original_servings
+    SELECT mpe.id as entry_id, mpe.recipe_id, mpe.day_of_week, mpe.meal_type,
+           mpe.category_id, mpe.servings as planned_servings,
+           r.title as recipe_title, r.image_url as recipe_image_url, r.servings as original_servings,
+           mcat.name as category_name, mcat.icon as category_icon,
+           mcat.color as category_color, mcat.sort_order as category_sort_order
     FROM meal_plan_entries mpe
     JOIN recipes r ON r.id = mpe.recipe_id
+    LEFT JOIN categories mcat ON mcat.id = mpe.category_id
     WHERE mpe.meal_plan_id = ? AND mpe.is_cooked = 0
-    ORDER BY mpe.day_of_week, mpe.meal_type
+    ORDER BY mpe.day_of_week, COALESCE(mcat.sort_order, 999)
   `).all(mealPlanId);
 
   // 3. Zutaten für alle Rezepte laden
@@ -114,7 +112,7 @@ export function calculatePantryAllocations(userId, mealPlanId, householdId) {
   // 7. Entries chronologisch durchlaufen, Zutaten allozieren
   const sortedEntries = entries.sort((a, b) => {
     if (a.day_of_week !== b.day_of_week) return a.day_of_week - b.day_of_week;
-    return (MEAL_TYPE_ORDER[a.meal_type] ?? 99) - (MEAL_TYPE_ORDER[b.meal_type] ?? 99);
+    return (a.category_sort_order ?? 999) - (b.category_sort_order ?? 999);
   });
 
   const recipeResults = [];
@@ -213,8 +211,12 @@ export function calculatePantryAllocations(userId, mealPlanId, householdId) {
       recipe_image_url: entry.recipe_image_url,
       day_of_week: entry.day_of_week,
       day_label: DAY_LABELS[entry.day_of_week] || `Tag ${entry.day_of_week}`,
-      meal_type: entry.meal_type,
-      meal_type_label: MEAL_TYPE_LABELS[entry.meal_type] || entry.meal_type,
+      category_id: entry.category_id,
+      category_name: entry.category_name || entry.meal_type || 'Unbekannt',
+      category_icon: entry.category_icon || '',
+      category_color: entry.category_color || '',
+      meal_type: entry.meal_type, // backward compat (denormalisiert)
+      meal_type_label: entry.category_name || entry.meal_type || 'Unbekannt', // backward compat für shopping.js
       servings: entry.planned_servings,
       ingredients: ingredientResults,
     });
@@ -247,4 +249,4 @@ export function calculatePantryAllocations(userId, mealPlanId, householdId) {
   };
 }
 
-export { MEAL_TYPE_ORDER, DAY_LABELS, MEAL_TYPE_LABELS };
+export { DAY_LABELS };

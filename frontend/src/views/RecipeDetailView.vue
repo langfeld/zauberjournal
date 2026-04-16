@@ -426,15 +426,15 @@
               <div>
                 <label class="block mb-2 font-medium text-stone-700 dark:text-stone-300 text-sm">Mahlzeit</label>
                 <div class="gap-2 grid grid-cols-2">
-                  <button v-for="mt in plannerMealTypes" :key="mt.key"
-                    @click="plannerSlot = mt.key"
+                  <button v-for="mt in plannerMealTypes" :key="mt.id"
+                    @click="plannerSlot = mt.id"
                     :class="[
                       'flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                      plannerSlot === mt.key
+                      plannerSlot === mt.id
                         ? 'bg-primary-600 text-white'
                         : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-700'
                     ]">
-                    <span>{{ mt.icon }}</span> {{ mt.label }}
+                    <span>{{ mt.icon }}</span> {{ mt.name }}
                   </button>
                 </div>
               </div>
@@ -576,7 +576,7 @@
     <ConfirmDialog
       v-model="showMealPlanSwapDialog"
       title="Im Wochenplan verschieben?"
-      :message="pendingSwapData ? `Dieses Rezept steht für ${dayNames[pendingSwapData.dayOfWeek]} (${mealTypeLabels[pendingSwapData.mealType] || pendingSwapData.mealType}) auf dem Wochenplan. Auf heute verschieben und als erledigt markieren?` : ''"
+      :message="pendingSwapData ? `Dieses Rezept steht für ${dayNames[pendingSwapData.dayOfWeek]} (${pendingSwapData.categoryName || 'Mahlzeit'}) auf dem Wochenplan. Auf heute verschieben und als erledigt markieren?` : ''"
       confirm-text="Verschieben & erledigen"
       cancel-text="Nein, nur gekocht"
       variant="info"
@@ -771,15 +771,19 @@ const showPlannerModal = ref(false);
 const addingToPlan = ref(false);
 const plannerWeekOffset = ref(0);
 const plannerDay = ref((() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })());
-const plannerSlot = ref('mittag');
+const plannerSlot = ref(null);
 const plannerServings = ref(4);
 
-const plannerMealTypes = [
-  { key: 'fruehstueck', label: 'Frühstück', icon: '🌅' },
-  { key: 'mittag', label: 'Mittag', icon: '☀️' },
-  { key: 'abendessen', label: 'Abend', icon: '🌙' },
-  { key: 'snack', label: 'Snack', icon: '🍎' },
-];
+const plannerMealTypes = computed(() =>
+  recipesStore.mealTimeCategories.map(c => ({ id: c.id, name: c.name, icon: c.icon, color: c.color }))
+);
+
+// Default-Slot auf erste Kategorie setzen sobald verfügbar
+watch(() => recipesStore.mealTimeCategories, (cats) => {
+  if (plannerSlot.value === null && cats.length) {
+    plannerSlot.value = cats[0].id;
+  }
+}, { immediate: true });
 
 const plannerWeekStart = computed(() => {
   const today = new Date();
@@ -825,7 +829,7 @@ async function addToPlan() {
     );
     showPlannerModal.value = false;
     const dayLabel = plannerWeekDays.value[plannerDay.value]?.short || '';
-    const slotLabel = plannerMealTypes.find(mt => mt.key === plannerSlot.value)?.label || '';
+    const slotLabel = plannerMealTypes.value.find(mt => mt.id === plannerSlot.value)?.name || '';
     const icon = result.replaced ? '🔄' : '📅';
     showSuccess(`${result.message || 'Zum Wochenplan hinzugefügt'} (${dayLabel}, ${slotLabel}) ${icon}`);
   } catch {
@@ -1054,7 +1058,6 @@ function formatDate(dateStr) {
 }
 
 const dayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-const mealTypeLabels = { mittag: 'Mittagessen', abendessen: 'Abendessen' };
 
 async function markCooked() {
   // ingredientOverrides vorbereiten: nur Overrides senden, die vom skalierten Wert abweichen

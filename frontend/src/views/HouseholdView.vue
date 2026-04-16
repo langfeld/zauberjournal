@@ -284,6 +284,164 @@
             </div>
           </div>
 
+          <!-- Kategorien synchronisieren -->
+          <div v-if="details?.members?.length > 1" class="bg-white dark:bg-stone-800 p-5 border border-stone-200 dark:border-stone-700 rounded-2xl">
+            <h3 class="flex items-center gap-2 mb-4 font-display font-semibold text-stone-800 dark:text-stone-100">
+              <Layers class="w-5 h-5 text-primary-600" />
+              Kategorien synchronisieren
+            </h3>
+
+            <p class="mb-4 text-stone-500 dark:text-stone-400 text-sm">
+              Vergleiche die Kategorien aller Mitglieder und fasse abweichende zusammen.
+            </p>
+
+            <!-- Laden -->
+            <div v-if="categoryCompareLoading" class="flex justify-center py-6">
+              <div class="border-4 border-primary-200 dark:border-primary-800 border-t-primary-600 rounded-full w-6 h-6 animate-spin"></div>
+            </div>
+
+            <!-- Noch nicht geladen -->
+            <button
+              v-else-if="!categoryGroups"
+              @click="loadCategoryCompare"
+              class="flex items-center gap-2 bg-primary-50 hover:bg-primary-100 dark:bg-primary-900/20 dark:hover:bg-primary-900/30 px-4 py-2.5 border border-primary-200 dark:border-primary-800 rounded-xl text-primary-700 dark:text-primary-300 text-sm transition-colors"
+            >
+              <Layers class="w-4 h-4" />
+              Kategorien vergleichen
+            </button>
+
+            <!-- Ergebnisse -->
+            <template v-else>
+              <!-- Erfolgs-Banner -->
+              <div v-if="mergeFeedback" class="flex items-start gap-2.5 bg-emerald-50 dark:bg-emerald-950/30 mb-4 p-3 border border-emerald-200 dark:border-emerald-900/50 rounded-xl">
+                <CheckCircle2 class="mt-0.5 w-4 h-4 text-emerald-500 shrink-0" />
+                <p class="text-emerald-700 dark:text-emerald-300 text-sm">{{ mergeFeedback }}</p>
+              </div>
+
+              <!-- Alles synchron -->
+              <div v-if="unsyncedGroups.length === 0" class="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 p-4 border border-emerald-200 dark:border-emerald-900/50 rounded-xl">
+                <CheckCircle2 class="w-5 h-5 text-emerald-500" />
+                <p class="text-emerald-700 dark:text-emerald-300 text-sm">
+                  Alle Kategorien sind synchron!
+                </p>
+              </div>
+
+              <!-- Gruppen-Liste -->
+              <div v-else class="space-y-3">
+                <div
+                  v-for="group in unsyncedGroups"
+                  :key="group.canonical_name"
+                  class="bg-stone-50 dark:bg-stone-900/50 p-4 border border-stone-200 dark:border-stone-700 rounded-xl"
+                >
+                  <!-- Gruppen-Header -->
+                  <div class="flex items-center justify-between gap-2 mb-3">
+                    <div class="flex items-center gap-2">
+                      <span class="text-amber-500">
+                        <AlertTriangle class="w-4 h-4" />
+                      </span>
+                      <span class="font-medium text-stone-800 dark:text-stone-100 text-sm">
+                        {{ group.categories.map(c => c.name).filter((v, i, a) => a.indexOf(v) === i).join(' / ') }}
+                      </span>
+                    </div>
+                    <span class="bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full text-amber-700 dark:text-amber-400 text-xs">
+                      {{ group.has_name_conflict ? 'Unterschiedliche Namen' : group.has_duplicates ? 'Doppelte Einträge' : 'Unterschiedlicher Stil' }}
+                    </span>
+                  </div>
+
+                  <!-- Einzelne Kategorien pro Mitglied -->
+                  <div class="space-y-2 mb-3">
+                    <div
+                      v-for="cat in group.categories"
+                      :key="cat.id"
+                      class="flex items-center gap-3 text-sm"
+                    >
+                      <div class="flex justify-center items-center bg-white dark:bg-stone-800 rounded-lg w-8 h-8 shrink-0 border border-stone-200 dark:border-stone-700">
+                        <span>{{ cat.icon }}</span>
+                      </div>
+                      <span class="text-stone-700 dark:text-stone-300 font-medium">{{ cat.name }}</span>
+                      <span :class="[
+                        'text-xs px-1.5 py-0.5 rounded-full',
+                        cat.is_meal_time ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-stone-100 dark:bg-stone-700 text-stone-500 dark:text-stone-400'
+                      ]">
+                        {{ cat.is_meal_time ? 'Tageszeit' : 'Kategorie' }}
+                      </span>
+                      <span class="ml-auto text-stone-400 dark:text-stone-500 text-xs">
+                        {{ cat.owner_name }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Fehlend bei -->
+                  <div v-if="group.missing_for.length" class="mb-3">
+                    <p class="text-stone-400 dark:text-stone-500 text-xs">
+                      Fehlt bei: {{ group.missing_for.map(uid => getMemberName(uid)).join(', ') }}
+                    </p>
+                  </div>
+
+                  <!-- Merge-Buttons -->
+                  <div class="flex flex-wrap gap-2">
+                    <!-- Duplikate: ein einzelner "Zusammenführen" Button -->
+                    <button
+                      v-if="group.has_duplicates && !group.has_name_conflict"
+                      @click="handleMergeGroup(group, { name: group.categories[0].name, icon: group.categories[0].icon, color: group.categories[0].color })"
+                      :disabled="merging"
+                      class="flex items-center gap-1.5 bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded-lg text-white text-sm transition-colors disabled:opacity-50"
+                    >
+                      <span>{{ group.categories[0].icon }}</span>
+                      <span>Duplikate zusammenführen</span>
+                    </button>
+                    <!-- Unterschiedliche Namen: ein Button pro Variante -->
+                    <template v-else>
+                      <button
+                        v-for="option in getMergeOptions(group)"
+                        :key="option.name"
+                        @click="handleMergeGroup(group, option)"
+                        :disabled="merging"
+                        class="flex items-center gap-1.5 bg-white hover:bg-primary-50 dark:bg-stone-800 dark:hover:bg-primary-900/20 px-3 py-1.5 border border-stone-200 dark:border-stone-700 hover:border-primary-300 dark:hover:border-primary-700 rounded-lg text-sm transition-colors disabled:opacity-50"
+                      >
+                        <span>{{ option.icon }}</span>
+                        <span class="text-stone-700 dark:text-stone-300">Alle auf &laquo;{{ option.name }}&raquo;</span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sync-Übersicht -->
+              <div v-if="syncedGroups.length > 0" class="mt-4">
+                <button
+                  @click="showSyncedCategories = !showSyncedCategories"
+                  class="flex items-center gap-2 text-stone-500 hover:text-stone-700 dark:hover:text-stone-300 text-sm transition-colors"
+                >
+                  <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': showSyncedCategories }" />
+                  <span>{{ syncedGroups.length }} synchronisierte Kategorie{{ syncedGroups.length !== 1 ? 'n' : '' }}</span>
+                </button>
+                <Transition name="fade">
+                  <div v-if="showSyncedCategories" class="flex flex-wrap gap-2 mt-2">
+                    <div
+                      v-for="group in syncedGroups"
+                      :key="group.canonical_name"
+                      class="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/20 px-2.5 py-1 rounded-lg text-sm"
+                    >
+                      <span>{{ group.categories[0]?.icon }}</span>
+                      <span class="text-emerald-700 dark:text-emerald-300">{{ group.canonical_name }}</span>
+                      <CheckCircle2 class="w-3.5 h-3.5 text-emerald-400" />
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+
+              <!-- Neu laden -->
+              <button
+                @click="loadCategoryCompare"
+                class="flex items-center gap-1.5 mt-4 text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 text-xs transition-colors"
+              >
+                <RefreshCw class="w-3.5 h-3.5" />
+                Aktualisieren
+              </button>
+            </template>
+          </div>
+
           <!-- Datenmigration -->
           <div class="bg-white dark:bg-stone-800 p-5 border border-stone-200 dark:border-stone-700 rounded-2xl">
             <h3 class="flex items-center gap-2 mb-3 font-display font-semibold text-stone-800 dark:text-stone-100">
@@ -592,7 +750,7 @@ import { useNotification } from '@/composables/useNotification.js';
 import { apiRaw } from '@/composables/useApi.js';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import QrCode from '@/components/ui/QrCode.vue';
-import { Home, Users, UserPlus, UserMinus, Plus, Settings, LogOut, Trash2, Activity, FolderSync, BarChart3, BookOpen, FolderOpen, CalendarDays, ShoppingCart, Warehouse, Tags, ShieldOff, ChevronDown, Info, CheckCircle2 } from 'lucide-vue-next';
+import { Home, Users, UserPlus, UserMinus, Plus, Settings, LogOut, Trash2, Activity, FolderSync, BarChart3, BookOpen, FolderOpen, CalendarDays, ShoppingCart, Warehouse, Tags, ShieldOff, ChevronDown, Info, CheckCircle2, Layers, AlertTriangle, RefreshCw } from 'lucide-vue-next';
 
 const householdStore = useHouseholdStore();
 const authStore = useAuthStore();
@@ -628,6 +786,17 @@ const copied = ref(false);
 const editName = ref('');
 const confirmAction = ref(null);
 const householdStats = ref(null);
+
+// --- Kategorien synchronisieren ---
+const categoryGroups = ref(null);
+const categoryMembers = ref([]);
+const categoryCompareLoading = ref(false);
+const merging = ref(false);
+const mergeFeedback = ref('');
+const showSyncedCategories = ref(false);
+
+const unsyncedGroups = computed(() => categoryGroups.value?.filter(g => !g.is_synced) || []);
+const syncedGroups = computed(() => categoryGroups.value?.filter(g => g.is_synced) || []);
 
 const currentUserId = computed(() => authStore.user?.id);
 const isCreator = computed(() => details.value?.created_by === currentUserId.value);
@@ -838,6 +1007,75 @@ async function handleDelete() {
       }
     },
   };
+}
+
+// --- Kategorien synchronisieren ---
+
+async function loadCategoryCompare() {
+  if (!householdStore.activeHouseholdId) return;
+  categoryCompareLoading.value = true;
+  mergeFeedback.value = '';
+  try {
+    const data = await apiRaw(`/households/${householdStore.activeHouseholdId}/categories/compare`);
+    categoryGroups.value = data.groups || [];
+    categoryMembers.value = data.members || [];
+  } catch (err) {
+    showError(err.message || 'Fehler beim Laden der Kategorien');
+  } finally {
+    categoryCompareLoading.value = false;
+  }
+}
+
+function getMemberName(userId) {
+  const m = categoryMembers.value.find(m => m.id === userId);
+  return m?.display_name || m?.username || `User ${userId}`;
+}
+
+function getMergeOptions(group) {
+  // Einzigartige Name+Icon+Color Kombinationen als Merge-Ziele
+  const seen = new Map();
+  for (const cat of group.categories) {
+    if (!seen.has(cat.name)) {
+      seen.set(cat.name, { name: cat.name, icon: cat.icon, color: cat.color });
+    }
+  }
+  return [...seen.values()];
+}
+
+async function handleMergeGroup(group, option) {
+  const idsToMerge = group.categories
+    .filter(c => c.name !== option.name || c.icon !== option.icon || c.color !== option.color)
+    .map(c => c.id);
+
+  // Wenn keine abweichenden Kategorien, alle IDs senden (für DB-Duplikat-Merge)
+  const ids = idsToMerge.length > 0
+    ? idsToMerge
+    : group.categories.slice(1).map(c => c.id); // alle außer der ersten
+
+  if (ids.length === 0) return;
+
+  merging.value = true;
+  mergeFeedback.value = '';
+  try {
+    const body = {
+      categoryIds: ids,
+      targetName: option.name,
+    };
+    if (option.icon) body.targetIcon = option.icon;
+    if (option.color) body.targetColor = option.color;
+
+    const result = await apiRaw(`/households/${householdStore.activeHouseholdId}/categories/merge`, {
+      method: 'POST',
+      body,
+    });
+    mergeFeedback.value = result.message || 'Kategorien synchronisiert!';
+    // Neu laden
+    await loadCategoryCompare();
+  } catch (err) {
+    showError(err.message || 'Fehler beim Zusammenfassen');
+  } finally {
+    merging.value = false;
+  }
 }
 
 // Beim Laden der View alle Infos holen
