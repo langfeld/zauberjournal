@@ -120,6 +120,17 @@ export function getWeekStart(date = new Date()) {
 }
 
 /**
+ * Berechnet den Wochentag (0=Mo, ..., 6=So) aus einem Datum-String.
+ * @param {string} dateStr - YYYY-MM-DD
+ * @returns {number} - 0=Montag, ..., 6=Sonntag
+ */
+export function getDayOfWeek(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const jsDay = d.getDay(); // 0=Sonntag, 1=Montag, ..., 6=Samstag
+  return jsDay === 0 ? 6 : jsDay - 1; // 0=Montag, ..., 6=Sonntag
+}
+
+/**
  * Formatiert eine Zutatenmenge leserlich
  * z.B. 0.5 -> "½", 1.5 -> "1½"
  */

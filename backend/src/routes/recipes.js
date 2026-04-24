@@ -15,7 +15,8 @@ import { getSetting } from '../config/settings.js';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { resolve, join } from 'path';
 import sharp from 'sharp';
-import { generateId, safePath, getWeekStart, scaleIngredient, convertToBaseUnit, unitsCompatible, comparePantryAmount, sanitize, isPrivateUrl, validateDate } from '../utils/helpers.js';
+import { generateId, safePath, getWeekStart, getDayOfWeek, scaleIngredient, convertToBaseUnit, unitsCompatible, comparePantryAmount, sanitize, isPrivateUrl, validateDate } from '../utils/helpers.js';
+import { formatDateLocal } from '../services/meal-planner.js';
 import { householdWhereClause } from '../config/database.js';
 import { broadcastToHousehold } from './household-events.js';
 import { createAIProgress } from '../utils/ai-progress.js';
@@ -1344,21 +1345,19 @@ export default async function recipesRoutes(fastify) {
     // ── Wochenplan-Sync: Wenn das Rezept heute im Plan steht → auch dort als gekocht markieren ──
     let mealPlanUpdated = false;
 
-    const currentWeekStart = getWeekStart();
     const now = new Date();
-    const jsDay = now.getDay(); // 0=So, 1=Mo, ..., 6=Sa
-    const todayDayOfWeek = jsDay === 0 ? 6 : jsDay - 1; // 0=Mo, ..., 6=So
+    const todayDate = formatDateLocal(now);
 
-    // Heutigen, ungekochten Wochenplan-Eintrag für dieses Rezept suchen
+    // Heutigen, ungekochten Wochenplan-Eintrag für dieses Rezept suchen (egal welcher Plan)
     const mealPlanEntry = db.prepare(`
       SELECT mpe.*, r.servings as original_servings
       FROM meal_plan_entries mpe
       JOIN meal_plans mp ON mpe.meal_plan_id = mp.id
       JOIN recipes r ON mpe.recipe_id = r.id
-      WHERE mp.user_id = ? AND mp.week_start = ? AND mpe.day_of_week = ?
+      WHERE mp.user_id = ? AND mpe.plan_date = ?
         AND mpe.recipe_id = ? AND mpe.is_cooked = 0
       LIMIT 1
-    `).get(userId, currentWeekStart, todayDayOfWeek, recipeId);
+    `).get(userId, todayDate, recipeId);
 
     if (mealPlanEntry) {
       // Eintrag als gekocht markieren
@@ -1369,7 +1368,7 @@ export default async function recipesRoutes(fastify) {
     // ── Vorräte IMMER abziehen (unabhängig vom Wochenplan) ──
     const pantryUpdated = deductPantryForRecipe(userId, recipeId, originalServings, targetServings, ingredientOverrides);
 
-    // ── Wenn nicht heute, aber an einem anderen Tag dieser Woche → Info zurückgeben ──
+    // ── Wenn nicht heute, aber an einem zukuenftigen Tag → Info zurückgeben ──
     let pendingMealPlanSync = null;
     if (!mealPlanUpdated) {
       const otherDayEntry = db.prepare(`
@@ -1378,10 +1377,11 @@ export default async function recipesRoutes(fastify) {
         FROM meal_plan_entries mpe
         JOIN meal_plans mp ON mpe.meal_plan_id = mp.id
         LEFT JOIN categories c ON mpe.category_id = c.id
-        WHERE mp.user_id = ? AND mp.week_start = ?
+        WHERE mp.user_id = ? AND mpe.plan_date >= ?
           AND mpe.recipe_id = ? AND mpe.is_cooked = 0
+        ORDER BY mpe.plan_date ASC
         LIMIT 1
-      `).get(userId, currentWeekStart, recipeId);
+      `).get(userId, todayDate, recipeId);
 
       if (otherDayEntry) {
         pendingMealPlanSync = {

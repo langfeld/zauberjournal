@@ -947,7 +947,8 @@ export function getMealPlan(userId, weekStart, householdId) {
   const hw = householdWhereClause(userId, householdId);
   const plan = db.prepare(
     `SELECT id, user_id, week_start, start_date, end_date, created_at, reasoning, is_locked
-     FROM meal_plans WHERE (${hw.clause}) AND week_start = ?`
+     FROM meal_plans WHERE (${hw.clause}) AND week_start = ?
+     ORDER BY created_at DESC LIMIT 1`
   ).get(...hw.params, weekStart);
 
   if (!plan) return null;

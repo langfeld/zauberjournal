@@ -9,7 +9,7 @@
 import db from '../config/database.js';
 import { householdWhereClause, getMealTimeCategories, getCategoryForUser } from '../config/database.js';
 import { generateWeekPlan, generateReasoning, saveMealPlan, getMealPlan, getMealPlanById, getEntriesByDateRange, getSuggestions, addDays, formatDateLocal } from '../services/meal-planner.js';
-import { getWeekStart, scaleIngredient, convertToBaseUnit, normalizeUnit, unitsCompatible, comparePantryAmount } from '../utils/helpers.js';
+import { getWeekStart, getDayOfWeek, scaleIngredient, convertToBaseUnit, normalizeUnit, unitsCompatible, comparePantryAmount } from '../utils/helpers.js';
 import { broadcastToHousehold } from './household-events.js';
 import { getSetting } from '../config/settings.js';
 import { aiPantryDeduction, undoAIPantryDeduction } from '../services/pantry-deduction-ai.js';
@@ -955,7 +955,7 @@ export default async function mealplanRoutes(fastify) {
     const userId = request.user.id;
     const hhWhere = householdWhereClause(userId, request.householdId, 'mp');
     const entry = db.prepare(`
-      SELECT mpe.*, mp.week_start, r.servings as original_servings FROM meal_plan_entries mpe
+      SELECT mpe.*, mp.week_start, mp.start_date, mp.end_date, r.servings as original_servings FROM meal_plan_entries mpe
       JOIN meal_plans mp ON mpe.meal_plan_id = mp.id
       JOIN recipes r ON mpe.recipe_id = r.id
       WHERE mpe.id = ? AND (${hhWhere.clause})
@@ -976,26 +976,64 @@ export default async function mealplanRoutes(fastify) {
     // ── Tausch-Logik: Rezept von anderem Tag auf heute verschieben ──
     let swapped = false;
     if (newState === 1) {
-      const currentWeekStart = getWeekStart();
-      // Nur tauschen wenn der Plan zur aktuellen Woche gehört
-      if (entry.week_start === currentWeekStart) {
-        const now = new Date();
-        const jsDay = now.getDay(); // 0=So, 1=Mo, ..., 6=Sa
-        const todayDayOfWeek = jsDay === 0 ? 6 : jsDay - 1; // 0=Mo, ..., 6=So
+      const now = new Date();
+      const todayDate = formatDateLocal(now);
 
-        if (entry.day_of_week !== todayDayOfWeek) {
-          // Heute als plan_date berechnen
-          const todayDate = formatDateLocal(now);
+      // Nur tauschen wenn der Eintrag nicht schon heute ist
+      // UND heute innerhalb des Plan-Zeitraums liegt
+      if (entry.plan_date !== todayDate && entry.start_date <= todayDate && entry.end_date >= todayDate) {
+        const todayDayOfWeek = getDayOfWeek(todayDate);
 
-          // Prüfen ob heute im gleichen Slot (category_id) ein Rezept liegt
-          const todayEntry = db.prepare(
-            'SELECT id, day_of_week, plan_date FROM meal_plan_entries WHERE meal_plan_id = ? AND day_of_week = ? AND category_id = ? AND id != ?'
-          ).get(entry.meal_plan_id, todayDayOfWeek, entry.category_id, entry.id);
+        // Prüfen ob heute im gleichen Slot (category_id) ein Rezept liegt
+        const todayEntry = db.prepare(
+          'SELECT id, day_of_week, plan_date FROM meal_plan_entries WHERE meal_plan_id = ? AND plan_date = ? AND category_id = ? AND id != ?'
+        ).get(entry.meal_plan_id, todayDate, entry.category_id, entry.id);
 
+        if (entry.plan_date < todayDate) {
+          // Eintrag war in der Vergangenheit → auf heute holen
+          let canSwap = true;
           if (todayEntry) {
-            // Beide Einträge tauschen: heutiger → Ursprungstag, markierter → heute
+            // Heute ist belegt → suche naechsten freien zukuenftigen Tag im selben Plan/Slot
+            const occupiedDates = db.prepare(
+              'SELECT plan_date FROM meal_plan_entries WHERE meal_plan_id = ? AND category_id = ? AND plan_date > ?'
+            ).all(entry.meal_plan_id, entry.category_id, todayDate).map(r => r.plan_date);
+
+            let freeDate = null;
+            let checkDate = new Date(todayDate + 'T12:00:00');
+            checkDate.setDate(checkDate.getDate() + 1);
+            while (freeDate === null && formatDateLocal(checkDate) <= entry.end_date) {
+              const checkDateStr = formatDateLocal(checkDate);
+              if (!occupiedDates.includes(checkDateStr)) {
+                freeDate = checkDateStr;
+              } else {
+                checkDate.setDate(checkDate.getDate() + 1);
+              }
+            }
+
+            if (freeDate) {
+              // Heutigen Eintrag auf freien Tag verschieben
+              const freeDayOfWeek = getDayOfWeek(freeDate);
+              db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, plan_date = ? WHERE id = ?')
+                .run(freeDayOfWeek, freeDate, todayEntry.id);
+            } else {
+              // Kein freier Tag gefunden → kein Swap (Option C)
+              canSwap = false;
+            }
+          }
+
+          if (canSwap) {
+            // Markierten Eintrag auf heute verschieben
             db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, plan_date = ? WHERE id = ?')
-              .run(entry.day_of_week, entry.plan_date, todayEntry.id);
+              .run(todayDayOfWeek, todayDate, entry.id);
+            swapped = true;
+          }
+        } else {
+          // Eintrag ist in der Zukunft → direkter Swap mit heutigem Eintrag
+          if (todayEntry) {
+            const entryDayOfWeek = getDayOfWeek(entry.plan_date);
+            // Heutigen Eintrag auf den urspruenglichen Tag verschieben
+            db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, plan_date = ? WHERE id = ?')
+              .run(entryDayOfWeek, entry.plan_date, todayEntry.id);
           }
           // Markierten Eintrag auf heute verschieben
           db.prepare('UPDATE meal_plan_entries SET day_of_week = ?, plan_date = ? WHERE id = ?')
@@ -1068,7 +1106,7 @@ export default async function mealplanRoutes(fastify) {
 
     // Bei Tausch: kompletten Plan zurückgeben, damit Frontend Positionen aktualisieren kann
     if (swapped) {
-      const updatedPlan = getMealPlan(userId, entry.week_start, request.householdId);
+      const updatedPlan = getMealPlanById(userId, entry.meal_plan_id, request.householdId);
       return {
         message: 'Als gekocht markiert und auf heute verschoben!',
         is_cooked: newState,
