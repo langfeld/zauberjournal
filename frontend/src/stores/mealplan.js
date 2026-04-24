@@ -29,6 +29,9 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   const generating = ref(false);
   const lastFetched = ref(null); // Timestamp des letzten Fetches
 
+  // ── Wochenansicht: plan-übergreifende Entries (Mo-So) ──
+  const weekViewData = ref(null); // { entries, plans, startDate, endDate }
+
   const api = useApi();
 
   /** Wochenplan generieren */
@@ -89,6 +92,34 @@ export const useMealPlanStore = defineStore('mealplan', () => {
       // Bei Netzwerkfehler: gecachte Daten behalten
       if (!navigator.onLine && currentPlan.value) {
         return { plan: currentPlan.value };
+      }
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  /** Alle Entries in einem Datumsbereich laden (plan-übergreifend, für Wochenansicht) */
+  async function fetchWeekEntries(startDate, endDate) {
+    loading.value = true;
+    try {
+      const data = await api.get(`/mealplan?startDate=${startDate}&endDate=${endDate}`);
+      weekViewData.value = data;
+      // currentPlan als aggregierter "Wochen-Plan" setzen, damit die Wochenansicht
+      // (getMeal, dayHasMeals etc.) weiterhin funktioniert
+      currentPlan.value = {
+        id: null,
+        week_start: startDate,
+        start_date: startDate,
+        end_date: endDate,
+        entries: data.entries || [],
+        is_locked: false,
+      };
+      lastFetched.value = Date.now();
+      return data;
+    } catch (err) {
+      if (!navigator.onLine && weekViewData.value) {
+        return weekViewData.value;
       }
       throw err;
     } finally {
@@ -173,7 +204,13 @@ export const useMealPlanStore = defineStore('mealplan', () => {
       const data = await apiRaw(`/mealplan/${planId}/entry/${entryId}/cooked`, { method: 'POST', body: { is_cooked: newState } });
       // Bei Tausch: kompletten Plan übernehmen (Positionen haben sich geändert)
       if (data.swapped && data.plan && currentPlan.value) {
-        currentPlan.value = data.plan;
+        if (!currentPlan.value.id && weekViewData.value) {
+          // Aggregierter Wochen-Plan: neu laden statt Plan zu ersetzen
+          const { startDate, endDate } = weekViewData.value;
+          await fetchWeekEntries(startDate, endDate);
+        } else {
+          currentPlan.value = data.plan;
+        }
       } else if (currentPlan.value?.entries) {
         const e = currentPlan.value.entries.find(e => e.id === entryId);
         if (e) e.is_cooked = data.is_cooked;
@@ -254,14 +291,16 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Rezept manuell zum Wochenplan hinzufügen (erstellt Plan automatisch) */
-  async function addRecipeToPlan(recipeId, dayOfWeek, categoryId, weekStart, servings) {
-    const data = await api.post('/mealplan/add-recipe', {
+  async function addRecipeToPlan(recipeId, dayOfWeek, categoryId, weekStart, servings, planDate) {
+    const body = {
       recipe_id: recipeId,
       day_of_week: dayOfWeek,
       category_id: categoryId,
       week_start: weekStart,
       servings,
-    });
+    };
+    if (planDate) body.plan_date = planDate;
+    const data = await api.post('/mealplan/add-recipe', body);
     // Wenn der aktuelle Plan betroffen ist, aktualisieren
     if (data.plan && currentPlan.value?.week_start === weekStart) {
       currentPlan.value = data.plan;
@@ -274,7 +313,19 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     const body = { day_of_week: dayOfWeek, category_id: categoryId };
     if (planDate) body.plan_date = planDate;
     const data = await api.post(`/mealplan/${planId}/entry/${entryId}/move`, body);
-    if (data.plan) currentPlan.value = data.plan;
+    if (data.plan) {
+      if (!currentPlan.value?.id && currentPlan.value?.entries) {
+        // Aggregierter Wochen-Plan: Entry direkt aktualisieren statt Plan zu ersetzen
+        const entry = currentPlan.value.entries.find(e => e.id === entryId);
+        if (entry) {
+          entry.day_of_week = dayOfWeek;
+          entry.category_id = categoryId;
+          if (planDate) entry.plan_date = planDate;
+        }
+      } else {
+        currentPlan.value = data.plan;
+      }
+    }
     return data;
   }
 
@@ -359,8 +410,9 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   return {
     currentPlan, plans, reasoning, reasoningSource, reasoningLoading, planHistory, availableWeeks, lastWeekRecipes, loading, generating, lastFetched,
     pastWeekRecipes, pastWeekOffset, pastWeekNumber, pastWeekHasPlan, pastWeekIndex, pastWeeksList,
+    weekViewData,
     generatePlan, pollReasoning, fetchCurrentPlan, fetchPlanById, fetchPlans, fetchHistory, fetchAvailableWeeks, fetchLastWeekRecipes, fetchPastWeekRecipes,
-    fetchSuggestions, markCooked, updateServings, swapRecipe, addEntry, addRecipeToPlan, moveEntry, removeEntry, deletePlan,
+    fetchWeekEntries, fetchSuggestions, markCooked, updateServings, swapRecipe, addEntry, addRecipeToPlan, moveEntry, removeEntry, deletePlan,
     toggleLock, duplicatePlan,
   };
 }, {

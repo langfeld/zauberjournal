@@ -35,7 +35,7 @@
           <BookOpen class="w-4 h-4" />
           <span class="hidden sm:inline">Rezepte</span>
         </button>
-        <button v-if="currentPlan" @click="toggleLockPlan"
+        <button v-if="currentPlan?.id && viewMode === 'plan'" @click="toggleLockPlan"
           :class="['flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-colors',
             isLocked
               ? 'bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900'
@@ -51,7 +51,7 @@
           <FolderSearch class="w-4 h-4" />
           <span class="hidden sm:inline">Laden</span>
         </button>
-        <button v-if="currentPlan && !isLocked" @click="confirmDeletePlan"
+        <button v-if="currentPlan?.id && viewMode === 'plan' && !isLocked" @click="confirmDeletePlan"
           class="flex items-center gap-1.5 hover:bg-red-50 dark:hover:bg-red-950 px-3 py-2 rounded-xl text-red-500 text-sm transition-colors">
           <Trash2 class="w-4 h-4" /> <span class="hidden sm:inline">Löschen</span>
         </button>
@@ -809,8 +809,11 @@
             </div>
 
             <!-- Gefüllter Slot -->
-            <div v-if="getMeal(dayIdx, mt.id)" class="group meal-card"
-              :class="{ 'meal-card--cooked': getMeal(dayIdx, mt.id).is_cooked }"
+            <div v-if="getMeal(dayIdx, mt.id)" class="group meal-card border-l-4"
+              :class="[
+                { 'meal-card--cooked': getMeal(dayIdx, mt.id).is_cooked },
+                getPlanBorderColor(getMeal(dayIdx, mt.id).meal_plan_id)
+              ]"
               :draggable="!isLocked"
               @dragstart="!isLocked && onDragStart($event, getMeal(dayIdx, mt.id))"
               @dragend="onDragEnd"
@@ -928,8 +931,11 @@
 
             <!-- Gefüllte Karte (RecipeCard-Design) -->
             <div v-if="getMeal(dayIdx, mt.id)"
-              class="group meal-card-large"
-              :class="{ 'meal-card-large--cooked': getMeal(dayIdx, mt.id).is_cooked }"
+              class="group meal-card-large border-l-4"
+              :class="[
+                { 'meal-card-large--cooked': getMeal(dayIdx, mt.id).is_cooked },
+                getPlanBorderColor(getMeal(dayIdx, mt.id).meal_plan_id)
+              ]"
               :draggable="!isLocked"
               @dragstart="!isLocked && onDragStart($event, getMeal(dayIdx, mt.id))"
               @dragend="onDragEnd"
@@ -1074,8 +1080,11 @@
           <template v-for="mt in mealTypes" :key="mt.id+'-mob-'+dayIdx">
             <!-- Gefüllte Mahlzeit -->
             <div v-if="getMeal(dayIdx, mt.id)"
-              class="mobile-meal-card"
-              :class="{ 'opacity-55': getMeal(dayIdx, mt.id).is_cooked }"
+              class="mobile-meal-card border-l-4"
+              :class="[
+                { 'opacity-55': getMeal(dayIdx, mt.id).is_cooked },
+                getPlanBorderColor(getMeal(dayIdx, mt.id).meal_plan_id)
+              ]"
               @click="router.push('/recipes/' + getMeal(dayIdx, mt.id).recipe_id)">
               <!-- Bild -->
               <div class="relative aspect-[5/3] overflow-hidden">
@@ -1170,10 +1179,13 @@
         <div v-for="mt in mealTypes" :key="mt.id">
 
           <!-- ── Desktop: horizontales Layout (wie bisher) ── -->
-          <div v-if="getMeal(selectedDayIdx, mt.id)" class="hidden lg:block">
+            <div v-if="getMeal(selectedDayIdx, mt.id)" class="hidden lg:block">
             <h3 class="mb-2 font-semibold text-stone-600 dark:text-stone-400 text-sm">{{ mt.icon }} {{ mt.name }}</h3>
-            <div class="group day-meal-card"
-              :class="{ 'day-meal-card--cooked': getMeal(selectedDayIdx, mt.id).is_cooked }">
+            <div class="group day-meal-card border-l-4"
+              :class="[
+                { 'day-meal-card--cooked': getMeal(selectedDayIdx, mt.id).is_cooked },
+                getPlanBorderColor(getMeal(selectedDayIdx, mt.id).meal_plan_id)
+              ]">
               <div class="flex gap-4">
                 <div class="relative rounded-xl w-28 sm:w-36 h-20 sm:h-24 overflow-hidden shrink-0">
                   <img v-if="getMeal(selectedDayIdx, mt.id).image_url"
@@ -1235,8 +1247,11 @@
 
           <!-- ── Mobile: Karten-Layout (Tap → Rezept, ⋮-Button → Optionen) ── -->
           <div v-if="getMeal(selectedDayIdx, mt.id)" class="lg:hidden">
-            <div class="mobile-meal-card"
-              :class="{ 'opacity-55': getMeal(selectedDayIdx, mt.id).is_cooked }"
+            <div class="mobile-meal-card border-l-4"
+              :class="[
+                { 'opacity-55': getMeal(selectedDayIdx, mt.id).is_cooked },
+                getPlanBorderColor(getMeal(selectedDayIdx, mt.id).meal_plan_id)
+              ]"
               @click="router.push('/recipes/' + getMeal(selectedDayIdx, mt.id).recipe_id)">
               <!-- Bild -->
               <div class="relative aspect-[5/3] overflow-hidden">
@@ -2298,6 +2313,36 @@ function dayHasMealsByDate(dateStr) {
   return currentPlan.value.entries.some(e => e.plan_date === dateStr);
 }
 
+/** Farben für verschiedene Pläne in der Wochenansicht */
+const PLAN_BORDER_COLORS = [
+  'border-primary-400 dark:border-primary-500',
+  'border-emerald-400 dark:border-emerald-500',
+  'border-amber-400 dark:border-amber-500',
+  'border-rose-400 dark:border-rose-500',
+];
+
+const planColorMap = computed(() => {
+  const map = {};
+  const plans = store.weekViewData?.plans || [];
+  plans.forEach((p, i) => {
+    map[p.id] = PLAN_BORDER_COLORS[i % PLAN_BORDER_COLORS.length];
+  });
+  return map;
+});
+
+function getPlanBorderColor(planId) {
+  return planColorMap.value[planId] || '';
+}
+
+/** Bestimmt den Plan, der einen bestimmten Tag in der Woche abdeckt */
+function getPlanForDay(dayIdx) {
+  const dateStr = weekDays.value[dayIdx]?.dateStr;
+  if (!dateStr || !store.weekViewData?.plans) return null;
+  return store.weekViewData.plans.find(p =>
+    p.start_date <= dateStr && p.end_date >= dateStr
+  );
+}
+
 function isDateToday(dateStr) {
   return dateStr === formatDateLocal(new Date());
 }
@@ -2347,6 +2392,14 @@ async function switchToViewMode(mode) {
     if (selectedPlanId.value) {
       await store.fetchPlanById(selectedPlanId.value);
     }
+  } else if (mode === 'week' || mode === 'day') {
+    // Wochenansicht: plan-übergreifende Entries laden
+    const ws = currentWeekStart.value;
+    const [y, m, d] = ws.split('-').map(Number);
+    const monday = new Date(y, m - 1, d);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    await store.fetchWeekEntries(ws, formatDateLocal(sunday));
   }
 }
 
@@ -2539,10 +2592,19 @@ const weekLabel = computed(() => {
   return `KW ${kw}: ${weekDays.value[0].date} – ${weekDays.value[6].date}`;
 });
 
-// ─── Wochen-Navigation: Plan laden bei Wechsel ───
+// ─── Wochen-Navigation: Daten laden bei Wechsel ───
 watch(currentWeekStart, async (ws) => {
   showPastDays.value = false;
-  await store.fetchCurrentPlan(ws);
+  if (viewMode.value === 'week' || viewMode.value === 'day') {
+    // Wochenansicht: alle Entries von Montag bis Sonntag laden (plan-übergreifend)
+    const [y, m, d] = ws.split('-').map(Number);
+    const monday = new Date(y, m - 1, d);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    await store.fetchWeekEntries(ws, formatDateLocal(sunday));
+  } else if (viewMode.value === 'plan') {
+    // Plan-Ansicht: wird separat in switchToViewMode / onPlanSelect geladen
+  }
 }, { immediate: false });
 
 function changeWeek(offset) {
@@ -2604,12 +2666,24 @@ function isDayPast(dayIdx) {
 const pastDaysCount = computed(() => weekDays.value.filter((_, idx) => isDayPast(idx)).length);
 
 function getMeal(dayIdx, categoryId) {
+  if (viewMode.value === 'week' || viewMode.value === 'day') {
+    // Wochenansicht: plan-übergreifend per plan_date suchen
+    if (!store.weekViewData?.entries) return null;
+    const dateStr = weekDays.value[dayIdx]?.dateStr;
+    return store.weekViewData.entries.find(e => e.plan_date === dateStr && e.category_id === categoryId);
+  }
+  // Plan-Ansicht: innerhalb currentPlan per day_of_week suchen (Legacy)
   if (!currentPlan.value?.entries) return null;
   return currentPlan.value.entries.find(e => e.day_of_week === dayIdx && e.category_id === categoryId);
 }
 
 /** Prüft ob ein Tag mindestens ein Rezept in irgendeinem Slot hat */
 function dayHasMeals(dayIdx) {
+  if (viewMode.value === 'week' || viewMode.value === 'day') {
+    if (!store.weekViewData?.entries) return false;
+    const dateStr = weekDays.value[dayIdx]?.dateStr;
+    return store.weekViewData.entries.some(e => e.plan_date === dateStr);
+  }
   if (!currentPlan.value?.entries) return false;
   return currentPlan.value.entries.some(e => e.day_of_week === dayIdx);
 }
@@ -2813,11 +2887,20 @@ async function doSwap(newRecipeId) {
   try {
     if (entry._isNew) {
       // Neuen Eintrag in leerem Slot erstellen
-      await store.addEntry(currentPlan.value.id, newRecipeId, entry.day_of_week, entry.category_id);
+      // In Wochenansicht: Plan für den Tag bestimmen
+      const targetPlan = viewMode.value === 'week' || viewMode.value === 'day'
+        ? getPlanForDay(entry.day_of_week)
+        : null;
+      const planId = targetPlan?.id || currentPlan.value?.id;
+      if (!planId) {
+        showSuccess('Für diesen Tag existiert noch kein Plan.');
+        return;
+      }
+      await store.addEntry(planId, newRecipeId, entry.day_of_week, entry.category_id);
       showSuccess('Rezept hinzugefügt! ✨');
     } else {
       // Bestehendes Rezept tauschen
-      await store.swapRecipe(currentPlan.value.id, entry.id, newRecipeId);
+      await store.swapRecipe(entry.meal_plan_id, entry.id, newRecipeId);
       showSuccess('Rezept getauscht! 🔄');
     }
   } catch { /* useApi */ }
@@ -2875,7 +2958,7 @@ async function confirmDeletePlan() {
 
 async function executeDeletePlan() {
   showDeletePlanConfirm.value = false;
-  if (!currentPlan.value) return;
+  if (!currentPlan.value?.id) return; // Nur in Plan-Ansicht erlaubt
   try {
     await store.deletePlan(currentPlan.value.id);
     showSuccess('Wochenplan gelöscht');
@@ -2884,7 +2967,7 @@ async function executeDeletePlan() {
 
 // ─── Fixieren ───
 async function toggleLockPlan() {
-  if (!currentPlan.value) return;
+  if (!currentPlan.value?.id) return; // Nur in Plan-Ansicht erlaubt
   try {
     const data = await store.toggleLock(currentPlan.value.id);
     showSuccess(data.message);
@@ -3042,26 +3125,34 @@ async function onPlanDrop(dateStr, categoryId) {
   showConflictModal.value = true;
 }
 
-/** Freie Slots einer bestimmten Kategorie ermitteln */
+/** Freie Slots einer bestimmten Kategorie ermitteln (Wochenansicht: plan-übergreifend) */
 function getFreeDays(categoryId) {
-  if (!currentPlan.value?.entries) return [0, 1, 2, 3, 4, 5, 6];
-  return [0, 1, 2, 3, 4, 5, 6].filter(day =>
-    !currentPlan.value.entries.some(e => e.day_of_week === day && e.category_id === categoryId)
-  );
+  return [0, 1, 2, 3, 4, 5, 6].filter(day => !getMeal(day, categoryId));
 }
 
 async function onDrop(dayIdx, categoryId) {
   dragTarget.value = null;
+  const targetPlan = getPlanForDay(dayIdx);
+  const planDate = weekDays.value[dayIdx]?.dateStr;
 
   // Fall 1: Interner Tausch (bestehendes Rezept im Plan ziehen)
   const source = dragSource.value;
   if (source) {
     dragSource.value = null;
-    if (!currentPlan.value) return;
     if (source.day_of_week === dayIdx && source.category_id === categoryId) return;
-    const planDate = weekDays.value[dayIdx]?.dateStr;
+
+    // Cross-Plan-Move: nur erlauben wenn Ziel im selben Plan liegt
+    if (targetPlan && source.meal_plan_id !== targetPlan.id) {
+      showSuccess('Verschieben zwischen verschiedenen Plänen ist noch nicht unterstützt.');
+      return;
+    }
+    // Wenn kein Zielplan existiert → Move nicht erlauben (kein Plan zum Ziel-Tag)
+    if (!targetPlan) {
+      showSuccess('Für diesen Tag existiert noch kein Plan. Bitte generiere zuerst einen Plan.');
+      return;
+    }
     try {
-      await store.moveEntry(currentPlan.value.id, source.id, dayIdx, categoryId, planDate);
+      await store.moveEntry(source.meal_plan_id, source.id, dayIdx, categoryId, planDate);
       showSuccess('Mahlzeit verschoben! ↕️');
     } catch { /* useApi */ }
     return;
@@ -3073,36 +3164,41 @@ async function onDrop(dayIdx, categoryId) {
   suggestionDragData.value = null;
 
   const existingMeal = getMeal(dayIdx, categoryId);
-  const planDate = weekDays.value[dayIdx]?.dateStr;
 
-  // Fall 2a: Kein Plan vorhanden → Plan automatisch erstellen
-  if (!currentPlan.value) {
+  if (targetPlan) {
+    // Tag gehört zu einem existierenden Plan
+    if (!existingMeal) {
+      try {
+        await store.addEntry(targetPlan.id, suggestion.recipeId, dayIdx, categoryId, undefined, planDate);
+        showSuccess('Rezept hinzugefügt! ✓');
+      } catch { /* useApi */ }
+      return;
+    }
+    // Slot belegt → Konflikt-Modal öffnen
+    conflictData.value = {
+      recipeId: suggestion.recipeId,
+      recipeTitle: suggestion.recipeTitle,
+      existingEntry: existingMeal,
+      targetDay: dayIdx,
+      targetMeal: categoryId,
+    };
+    showConflictModal.value = true;
+  } else {
+    // Kein Plan für diesen Tag → neuen Plan erstellen (1-Tages-Plan)
     try {
-      const data = await store.addRecipeToPlan(suggestion.recipeId, dayIdx, categoryId, currentWeekStart.value);
-      if (data.plan) currentPlan.value = data.plan;
-      showSuccess('Wochenplan erstellt & Rezept hinzugefügt! 🎉');
+      const data = await store.addRecipeToPlan(suggestion.recipeId, dayIdx, categoryId, planDate, undefined, planDate);
+      if (data.plan) {
+        // Wochenansicht neu laden, damit der neue Plan sichtbar wird
+        const ws = currentWeekStart.value;
+        const [y, m, d] = ws.split('-').map(Number);
+        const monday = new Date(y, m - 1, d);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        await store.fetchWeekEntries(ws, formatDateLocal(sunday));
+      }
+      showSuccess('Plan erstellt & Rezept hinzugefügt! 🎉');
     } catch { /* useApi */ }
-    return;
   }
-
-  // Fall 2b: Slot ist frei → direkt hinzufügen
-  if (!existingMeal) {
-    try {
-      await store.addEntry(currentPlan.value.id, suggestion.recipeId, dayIdx, categoryId, undefined, planDate);
-      showSuccess('Rezept hinzugefügt! ✓');
-    } catch { /* useApi */ }
-    return;
-  }
-
-  // Fall 2c: Slot belegt → Konflikt-Modal öffnen
-  conflictData.value = {
-    recipeId: suggestion.recipeId,
-    recipeTitle: suggestion.recipeTitle,
-    existingEntry: existingMeal,
-    targetDay: dayIdx,
-    targetMeal: categoryId,
-  };
-  showConflictModal.value = true;
 }
 
 // ─── Konflikt-Auflösung ───
@@ -3110,7 +3206,7 @@ async function conflictReplace() {
   const { recipeId, existingEntry } = conflictData.value;
   showConflictModal.value = false;
   try {
-    await store.swapRecipe(currentPlan.value.id, existingEntry.id, recipeId);
+    await store.swapRecipe(existingEntry.meal_plan_id, existingEntry.id, recipeId);
     showSuccess('Rezept ersetzt! 🔄');
   } catch { /* useApi */ }
   conflictData.value = null;
@@ -3124,11 +3220,12 @@ async function conflictMove() {
   const freeDay = freeDays[0];
   const freePlanDate = weekDays.value[freeDay]?.dateStr;
   const targetPlanDate = weekDays.value[targetDay]?.dateStr;
+  const planId = existingEntry.meal_plan_id;
   try {
     // Bestehendes auf freien Tag verschieben
-    await store.moveEntry(currentPlan.value.id, existingEntry.id, freeDay, targetMeal, freePlanDate);
+    await store.moveEntry(planId, existingEntry.id, freeDay, targetMeal, freePlanDate);
     // Neues Rezept auf den Ziel-Slot setzen
-    await store.addEntry(currentPlan.value.id, recipeId, targetDay, targetMeal, undefined, targetPlanDate);
+    await store.addEntry(planId, recipeId, targetDay, targetMeal, undefined, targetPlanDate);
     const dayName = weekDays.value[freeDay]?.short || freeDay;
     showSuccess(`Bestehendes nach ${dayName} verschoben, neues Rezept eingefügt! ↕️`);
   } catch { /* useApi */ }
@@ -3139,9 +3236,10 @@ async function conflictDelete() {
   const { recipeId, existingEntry, targetDay, targetMeal } = conflictData.value;
   showConflictModal.value = false;
   const targetPlanDate = weekDays.value[targetDay]?.dateStr;
+  const planId = existingEntry.meal_plan_id;
   try {
-    await store.removeEntry(currentPlan.value.id, existingEntry.id);
-    await store.addEntry(currentPlan.value.id, recipeId, targetDay, targetMeal, undefined, targetPlanDate);
+    await store.removeEntry(planId, existingEntry.id);
+    await store.addEntry(planId, recipeId, targetDay, targetMeal, undefined, targetPlanDate);
     showSuccess('Bestehendes gelöscht, neues Rezept eingefügt! 🗑️');
   } catch { /* useApi */ }
   conflictData.value = null;
@@ -3199,18 +3297,28 @@ async function doUnblockRecipe(blockId) {
 // ─── Init ───
 onMounted(async () => {
   recipesStore.fetchCategories();
-  await store.fetchCurrentPlan(currentWeekStart.value);
   store.fetchHistory();
   store.fetchAvailableWeeks();
   collectionsStore.fetchCollections();
   blocksStore.fetchBlocks();
   fetchSuggestions();
   store.fetchLastWeekRecipes();
-  // Wenn Plan-Modus aktiv → Pläne laden
-  if (viewMode.value === 'plan') {
+
+  const ws = currentWeekStart.value;
+  if (viewMode.value === 'week' || viewMode.value === 'day') {
+    // Wochenansicht: plan-übergreifende Entries laden
+    const [y, m, d] = ws.split('-').map(Number);
+    const monday = new Date(y, m - 1, d);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    await store.fetchWeekEntries(ws, formatDateLocal(sunday));
+  } else if (viewMode.value === 'plan') {
+    // Plan-Ansicht: aktuellen Plan oder Pläne laden
     await store.fetchPlans();
     if (store.plans.length && !selectedPlanId.value) {
       selectedPlanId.value = store.plans[0].id;
+    }
+    if (selectedPlanId.value) {
       await store.fetchPlanById(selectedPlanId.value);
     }
   }
