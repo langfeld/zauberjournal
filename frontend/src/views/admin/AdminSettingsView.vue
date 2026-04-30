@@ -106,6 +106,7 @@
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
               <option value="ollama">Ollama (Lokal)</option>
+              <option value="requesty">Requesty.ai</option>
             </select>
           </div>
         </div>
@@ -295,6 +296,22 @@
               placeholder="http://localhost:11434" @save="saveSetting('ollama_base_url', settingsMap.ollama_base_url)" />
             <SettingsInput label="Modell" v-model="settingsMap.ollama_model"
               placeholder="llava" @save="saveSetting('ollama_model', settingsMap.ollama_model)" />
+          </div>
+
+          <!-- Requesty.ai -->
+          <div v-if="settingsMap.ai_provider === 'requesty'" class="space-y-3">
+            <h3 class="font-medium text-primary-600 dark:text-primary-400 text-sm">Requesty.ai</h3>
+            <SettingsInput label="API-Key" v-model="settingsMap.requesty_api_key" type="password"
+              placeholder="reqy-..." @save="saveSetting('requesty_api_key', settingsMap.requesty_api_key)" />
+            <SettingsInput label="Base-URL" v-model="settingsMap.requesty_base_url"
+              placeholder="https://router.requesty.ai/v1" @save="saveSetting('requesty_base_url', settingsMap.requesty_base_url)" />
+            <SettingsInput label="Modell" v-model="settingsMap.requesty_model"
+              placeholder="gpt-4o" @save="saveSetting('requesty_model', settingsMap.requesty_model)" />
+            <SettingsInput label="Schnelles Modell" v-model="settingsMap.requesty_simple_model"
+              placeholder="gpt-4o-mini" @save="saveSetting('requesty_simple_model', settingsMap.requesty_simple_model)" />
+            <p class="text-stone-400 dark:text-stone-500 text-xs">
+              Das schnelle Modell wird für einfache Aufgaben wie Umrechnungs-Generierung verwendet (günstiger & schneller).
+            </p>
           </div>
         </div>
       </section>

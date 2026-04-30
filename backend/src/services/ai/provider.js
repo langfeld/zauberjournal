@@ -19,6 +19,7 @@ import { KimiProvider } from './kimi.js';
 import { OpenAIProvider } from './openai.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OllamaProvider } from './ollama.js';
+import { RequestyProvider } from './requesty.js';
 
 // BaseAIProvider aus separater Datei re-exportieren (vermeidet zirkuläre Imports)
 export { BaseAIProvider } from './base.js';
@@ -33,6 +34,7 @@ const providerMap = {
   openai:    (ai) => new OpenAIProvider(ai.openai),
   anthropic: (ai) => new AnthropicProvider(ai.anthropic),
   ollama:    (ai) => new OllamaProvider(ai.ollama),
+  requesty:  (ai) => new RequestyProvider(ai.requesty),
 };
 
 // Singleton-Instanzen der aktiven Provider

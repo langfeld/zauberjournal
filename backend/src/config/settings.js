@@ -78,6 +78,12 @@ export function getAiConfig() {
       model:   getSetting('ollama_model',    env.OLLAMA_MODEL || 'llava'),
       simpleModel: getSetting('ollama_simple_model', env.OLLAMA_SIMPLE_MODEL || ''),
     },
+    requesty: {
+      apiKey:  getSetting('requesty_api_key',  env.REQUESTY_API_KEY || ''),
+      baseUrl: getSetting('requesty_base_url', env.REQUESTY_BASE_URL || 'https://router.requesty.ai/v1'),
+      model:   getSetting('requesty_model',    env.REQUESTY_MODEL || 'gpt-4o'),
+      simpleModel: getSetting('requesty_simple_model', env.REQUESTY_SIMPLE_MODEL || 'gpt-4o-mini'),
+    },
   };
 }
 

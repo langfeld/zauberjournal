@@ -49,6 +49,10 @@ const ALLOWED_SETTINGS = new Set([
   'anthropic_model',
   'ollama_base_url',
   'ollama_model',
+  'requesty_api_key',
+  'requesty_base_url',
+  'requesty_model',
+  'requesty_simple_model',
   // Vorratsabzug
   'ai_pantry_deduction',
   'ai_pantry_deduction_instant',
@@ -492,7 +496,7 @@ export default async function adminRoutes(fastify) {
     const settings = {};
 
     // API-Keys maskieren (nur letzte 4 Zeichen zeigen)
-    const sensitiveKeys = new Set(['kimi_api_key', 'openai_api_key', 'anthropic_api_key']);
+    const sensitiveKeys = new Set(['kimi_api_key', 'openai_api_key', 'anthropic_api_key', 'requesty_api_key']);
     for (const row of rows) {
       if (sensitiveKeys.has(row.key) && row.value && row.value.length > 4) {
         settings[row.key] = '•'.repeat(row.value.length - 4) + row.value.slice(-4);
@@ -529,7 +533,7 @@ export default async function adminRoutes(fastify) {
     }
 
     // Maskierte API-Keys ignorieren (wenn der Wert nur • und 4 Zeichen am Ende hat)
-    const sensitiveKeys = new Set(['kimi_api_key', 'openai_api_key', 'anthropic_api_key']);
+    const sensitiveKeys = new Set(['kimi_api_key', 'openai_api_key', 'anthropic_api_key', 'requesty_api_key']);
     const filteredSettings = {};
     for (const [key, value] of Object.entries(settings)) {
       if (sensitiveKeys.has(key) && value && value.startsWith('•')) continue; // Maskiert → nicht überschreiben
@@ -549,7 +553,7 @@ export default async function adminRoutes(fastify) {
     transaction();
 
     // KI-Provider zurücksetzen, wenn sich KI-Einstellungen geändert haben
-    const aiKeys = Object.keys(filteredSettings).filter(k => k.startsWith('ai_') || k.startsWith('kimi_') || k.startsWith('openai_') || k.startsWith('anthropic_') || k.startsWith('ollama_'));
+    const aiKeys = Object.keys(filteredSettings).filter(k => k.startsWith('ai_') || k.startsWith('kimi_') || k.startsWith('openai_') || k.startsWith('anthropic_') || k.startsWith('ollama_') || k.startsWith('requesty_'));
     if (aiKeys.length > 0) {
       resetProvider();
     }
