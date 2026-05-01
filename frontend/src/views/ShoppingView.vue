@@ -585,25 +585,6 @@
                     <span :class="['font-medium text-sm', item.is_checked ? 'line-through text-stone-400' : 'text-stone-800 dark:text-stone-200']">
                       {{ item.ingredient_name }}
                     </span>
-                    <!-- Favoriten-Stern mit Counter -->
-                    <div v-if="reweEnabled && !selectMode && item.rewe_product" class="relative">
-                      <button
-                        @click.stop="openFavPopup(item, $event)"
-                        class="relative hover:scale-110 transition-transform"
-                        :title="favCounts.get(item.ingredient_name.toLowerCase()) > 1 ? `${favCounts.get(item.ingredient_name.toLowerCase())} Favoriten` : 'Favorit auswählen'"
-                      >
-                        <Star
-                          class="w-4 h-4"
-                          :class="item.rewe_product.matchedBy === 'preference' ? 'fill-amber-400 text-amber-400' : 'text-stone-300 dark:text-stone-600 hover:text-amber-400'"
-                        />
-                        <span
-                          v-if="favCounts.get(item.ingredient_name.toLowerCase()) > 1"
-                          class="-top-1.5 -right-1.5 absolute flex justify-center items-center bg-amber-500 rounded-full w-3.5 h-3.5 text-white text-[9px] font-bold"
-                        >
-                          {{ favCounts.get(item.ingredient_name.toLowerCase()) }}
-                        </span>
-                      </button>
-                    </div>
                     <!-- Source-Icons -->
                     <span v-if="item.source === 'manual'" title="Manuell hinzugefügt" class="text-stone-400 dark:text-stone-500">
                       <PenLine class="w-3 h-3" />
@@ -1898,32 +1879,51 @@
               <!-- Produktliste -->
               <div class="flex-1 overflow-y-auto">
                 <!-- Ladezustand -->
-                <div v-if="pickerLoading" class="flex flex-col items-center gap-3 py-12">
+                <div v-if="pickerLoading || pickerFavLoading" class="flex flex-col items-center gap-3 py-12">
                   <div class="border-2 border-rewe-200 border-t-rewe-600 rounded-full w-8 h-8 animate-spin" />
                   <p class="text-stone-500 dark:text-stone-400 text-sm">Suche bei REWE…</p>
                 </div>
 
                 <!-- Keine Ergebnisse -->
-                <div v-else-if="pickerProducts.length === 0" class="py-12 text-center">
+                <div v-else-if="pickerAllProducts.length === 0" class="py-12 text-center">
                   <div class="mb-2 text-4xl">🔍</div>
                   <p class="text-stone-500 dark:text-stone-400 text-sm">Keine Produkte gefunden.</p>
                 </div>
 
-                <!-- Ergebnisliste -->
+                <!-- Ergebnisliste (Favoriten + Alternativen gemischt) -->
                 <div v-else class="divide-y divide-stone-100 dark:divide-stone-800">
-                  <button
-                    v-for="(product, idx) in pickerProducts"
+                  <div
+                    v-for="(product, idx) in pickerAllProducts"
                     :key="product.id"
-                    @click="selectProduct(product)"
-                    class="group flex items-center gap-3 hover:bg-stone-50 dark:hover:bg-stone-800/40 px-5 py-3 w-full text-left transition-colors"
+                    class="flex items-center gap-3 hover:bg-stone-50 dark:hover:bg-stone-800/40 px-5 py-3 w-full transition-colors"
                     :class="{
                       'bg-green-50/50 dark:bg-green-900/10': pickerItem.rewe_product?.id === product.id,
+                      'bg-amber-50/30 dark:bg-amber-900/10': product._isFavorite,
                     }"
                   >
-                    <!-- Produktbild -->
-                    <div class="flex justify-center items-center bg-white dark:bg-stone-700 border border-stone-100 dark:border-stone-600 rounded-lg w-12 h-12 overflow-hidden shrink-0"
-                      :class="{ 'cursor-zoom-in': product.imageUrl }"
-                      @click.stop="product.imageUrl && openLightbox(product.imageUrl, product.name)">
+                    <!-- Stern (Favorit togglen) -->
+                    <button
+                      @click.stop="toggleProductFavorite(product)"
+                      class="hover:scale-110 shrink-0 transition-transform"
+                      :title="product._isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
+                    >
+                      <Star
+                        v-if="product._isFavorite"
+                        class="w-5 h-5 fill-amber-400 text-amber-400"
+                      />
+                      <Star
+                        v-else
+                        class="w-5 h-5 text-stone-300 dark:text-stone-600 hover:text-amber-400"
+                      />
+                    </button>
+
+                    <!-- Produktbild (klickbar zum Zuweisen) -->
+                    <button
+                      class="flex justify-center items-center bg-white dark:bg-stone-700 border border-stone-100 dark:border-stone-600 rounded-lg w-12 h-12 overflow-hidden shrink-0 text-left"
+                      :class="{ 'cursor-zoom-in': product.imageUrl, 'opacity-50': product._isUnavailable }"
+                      @click.stop="product.imageUrl && openLightbox(product.imageUrl, product.name)"
+                      :disabled="product._isUnavailable"
+                    >
                       <img
                         v-if="product.imageUrl"
                         :src="product.imageUrl"
@@ -1932,42 +1932,52 @@
                         loading="lazy"
                       />
                       <div v-else class="flex justify-center items-center rounded-full w-7 h-7 font-bold text-xs shrink-0"
-                        :class="idx === 0
+                        :class="idx === 0 && !product._isFavorite
                           ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400'
                           : 'bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400'"
                       >
-                        <Tag v-if="idx === 0" class="w-3.5 h-3.5" />
-                        <span v-else>{{ idx + 1 }}</span>
+                        <Tag v-if="idx === 0 && !product._isFavorite" class="w-3.5 h-3.5" />
+                        <span v-else>🏪</span>
                       </div>
-                    </div>
+                    </button>
 
-                    <!-- Produktinfo -->
-                    <div class="flex-1 min-w-0">
-                      <p class="font-medium text-stone-800 dark:group-hover:text-rewe-400 dark:text-stone-200 group-hover:text-rewe-600 text-sm truncate transition-colors">
+                    <!-- Produktinfo (klickbar zum Zuweisen) -->
+                    <button
+                      @click="!product._isUnavailable && selectProduct(product)"
+                      class="flex-1 min-w-0 text-left"
+                      :class="product._isUnavailable ? 'cursor-not-allowed opacity-50' : 'group'"
+                      :disabled="product._isUnavailable"
+                    >
+                      <p class="font-medium text-stone-800 dark:text-stone-200 text-sm truncate transition-colors"
+                        :class="!product._isUnavailable && 'group-hover:text-rewe-600 dark:group-hover:text-rewe-400'"
+                      >
                         {{ product.name }}
                       </p>
                       <p class="flex items-center gap-2 mt-0.5 text-stone-500 dark:text-stone-400 text-xs">
                         <span v-if="product.packageSize">{{ product.packageSize }}</span>
-                        <span v-if="idx === 0" class="inline-flex items-center gap-0.5 bg-green-100 dark:bg-green-900/40 px-1.5 py-0.5 rounded font-medium text-[10px] text-green-700 dark:text-green-400">
+                        <span v-if="product._isUnavailable" class="inline-flex items-center gap-0.5 bg-stone-100 dark:bg-stone-700 px-1.5 py-0.5 rounded font-medium text-[10px] text-stone-500 dark:text-stone-400">
+                          Nicht verfügbar
+                        </span>
+                        <span v-else-if="idx === 0 && !product._isFavorite" class="inline-flex items-center gap-0.5 bg-green-100 dark:bg-green-900/40 px-1.5 py-0.5 rounded font-medium text-[10px] text-green-700 dark:text-green-400">
                           Relevantester
                         </span>
                         <span v-if="pickerItem.rewe_product?.id === product.id" class="inline-flex items-center gap-0.5 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded font-medium text-[10px] text-blue-700 dark:text-blue-400">
                           <Check class="w-2.5 h-2.5" /> Ausgewählt
                         </span>
                       </p>
-                    </div>
+                    </button>
 
                     <!-- Preis -->
-                    <div class="text-right shrink-0">
+                    <div class="text-right shrink-0" :class="product._isUnavailable ? 'opacity-50' : ''">
                       <p class="font-bold tabular-nums text-sm"
-                        :class="idx === 0
+                        :class="idx === 0 && !product._isFavorite
                           ? 'text-green-600 dark:text-green-400'
                           : 'text-stone-700 dark:text-stone-300'"
                       >
                         {{ formatPrice(product.price) }}
                       </p>
                     </div>
-                  </button>
+                  </div>
                 </div>
               </div>
 
@@ -2350,120 +2360,6 @@
           <!-- Pfeil -->
           <div class="top-full absolute -mt-px border-x-[7px] border-x-transparent border-t-[7px] border-t-stone-200 dark:border-t-stone-600 w-0 h-0" :style="{ left: 'calc(50% + ' + (activeMatchReason.arrowX || 0) + 'px)', transform: 'translateX(-50%)' }"></div>
           <div class="top-full absolute -mt-0.5 border-x-[6px] border-x-transparent border-t-[6px] border-t-white dark:border-t-stone-800 w-0 h-0" :style="{ left: 'calc(50% + ' + (activeMatchReason.arrowX || 0) + 'px)', transform: 'translateX(-50%)' }"></div>
-        </div>
-      </Transition>
-    </Teleport>
-
-    <!-- Favoriten-Popup (unter dem Stern) -->
-    <Teleport to="body">
-      <Transition
-        enter-active-class="transition ease-out duration-150"
-        enter-from-class="opacity-0 scale-95"
-        enter-to-class="opacity-100 scale-100"
-        leave-active-class="transition ease-in duration-100"
-        leave-from-class="opacity-100 scale-100"
-        leave-to-class="opacity-0 scale-95"
-      >
-        <div
-          v-if="favPopup"
-          class="z-50 fixed bg-white dark:bg-stone-800 shadow-xl border border-stone-200 dark:border-stone-600 rounded-xl w-72 overflow-hidden"
-          :style="{
-            left: favPopup.x + 'px',
-            top: favPopup.y + 'px',
-            transform: 'translateX(-50%)',
-          }"
-          @click.stop
-        >
-          <!-- Header -->
-          <div class="flex justify-between items-center px-3 py-2 border-stone-200 dark:border-stone-700 border-b">
-            <span class="font-semibold text-stone-800 dark:text-stone-100 text-xs">⭐ Favoriten</span>
-            <button @click="closeFavPopup" class="hover:bg-stone-100 dark:hover:bg-stone-700 p-1 rounded text-stone-400 transition-colors">
-              <X class="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <!-- Ladezustand -->
-          <div v-if="favPopupLoading" class="flex justify-center py-4">
-            <Loader2 class="w-4 h-4 text-stone-400 animate-spin" />
-          </div>
-
-          <!-- Leer -->
-          <div v-else-if="favPopupFavorites.length === 0" class="px-3 py-4 text-center text-stone-400 dark:text-stone-500 text-xs">
-            Noch keine Favoriten für diese Zutat.
-          </div>
-
-          <!-- Favoriten-Liste -->
-          <div v-else class="max-h-56 overflow-y-auto">
-            <div
-              v-for="(fav, idx) in favPopupFavorites"
-              :key="fav.id"
-              class="flex items-center gap-2 hover:bg-stone-50 dark:hover:bg-stone-700/50 px-3 py-2 border-stone-100 dark:border-stone-700/50 border-b last:border-b-0 transition-colors"
-            >
-              <!-- Produktbild -->
-              <img
-                v-if="fav.rewe_image_url"
-                :src="fav.rewe_image_url"
-                :alt="fav.rewe_product_name"
-                class="rounded w-8 h-8 object-contain shrink-0"
-              />
-              <div v-else class="flex justify-center items-center bg-stone-100 dark:bg-stone-700 rounded w-8 h-8 text-sm shrink-0">🏪</div>
-
-              <!-- Info -->
-              <button
-                @click="selectFavoriteFromPopup(fav)"
-                class="flex-1 min-w-0 text-left"
-                :class="favPopup.item?.rewe_product?.id === fav.rewe_product_id ? 'text-rewe-600 dark:text-rewe-400 font-medium' : 'text-stone-700 dark:text-stone-200'"
-              >
-                <p class="text-xs truncate">{{ fav.rewe_product_name }}</p>
-                <p class="text-[10px] text-stone-400 dark:text-stone-500">{{ fav.rewe_package_size }} · {{ formatPrice(fav.rewe_price) }}</p>
-              </button>
-
-              <!-- Aktuell-Indikator -->
-              <span v-if="favPopup.item?.rewe_product?.id === fav.rewe_product_id" class="text-rewe-500 text-xs shrink-0">✓</span>
-
-              <!-- Sortierung -->
-              <div class="flex flex-col gap-0.5 shrink-0">
-                <button
-                  @click="moveFavoriteInPopup(fav, 'up')"
-                  :disabled="idx === 0"
-                  class="hover:bg-stone-100 dark:hover:bg-stone-700 disabled:opacity-20 p-0.5 rounded text-stone-400 text-[10px] transition-colors"
-                >
-                  <ChevronUp class="w-3 h-3" />
-                </button>
-                <button
-                  @click="moveFavoriteInPopup(fav, 'down')"
-                  :disabled="idx === favPopupFavorites.length - 1"
-                  class="hover:bg-stone-100 dark:hover:bg-stone-700 disabled:opacity-20 p-0.5 rounded text-stone-400 text-[10px] transition-colors"
-                >
-                  <ChevronDown class="w-3 h-3" />
-                </button>
-              </div>
-
-              <!-- Löschen -->
-              <button
-                @click="removeFavoriteFromPopup(fav)"
-                class="hover:bg-red-50 dark:hover:bg-red-900/20 p-1 rounded text-stone-400 hover:text-red-500 transition-colors shrink-0"
-                title="Favorit entfernen"
-              >
-                <Trash2 class="w-3 h-3" />
-              </button>
-            </div>
-          </div>
-
-          <!-- Footer: Alternative suchen -->
-          <div class="px-3 py-2 border-stone-200 dark:border-stone-700 border-t">
-            <button
-              @click="closeFavPopup(); openProductPicker(favPopup.item)"
-              class="flex justify-center items-center gap-1.5 hover:bg-rewe-50 dark:hover:bg-rewe-900/20 py-1.5 rounded-lg w-full font-medium text-rewe-600 dark:text-rewe-400 text-xs transition-colors"
-            >
-              <Search class="w-3.5 h-3.5" />
-              Alternative wählen
-            </button>
-          </div>
-
-          <!-- Pfeil nach oben -->
-          <div class="bottom-full absolute -mb-px border-x-[7px] border-x-transparent border-b-[7px] border-b-stone-200 dark:border-b-stone-600 w-0 h-0" :style="{ left: 'calc(50% + ' + (favPopup.arrowX || 0) + 'px)', transform: 'translateX(-50%)' }"></div>
-          <div class="bottom-full absolute -mb-0.5 border-x-[6px] border-x-transparent border-b-[6px] border-b-white dark:border-b-stone-800 w-0 h-0" :style="{ left: 'calc(50% + ' + (favPopup.arrowX || 0) + 'px)', transform: 'translateX(-50%)' }"></div>
         </div>
       </Transition>
     </Teleport>
@@ -2934,12 +2830,62 @@ const pickerLoading = ref(false);     // Ladeindikator
 const pickerSearch = ref('');         // Suchbegriff im Picker
 const pickerFavorites = ref([]);      // Gespeicherte Favoriten für die aktuelle Zutat
 const pickerFavLoading = ref(false);  // Ladeindikator für Favoriten
-const favCounts = ref(new Map());     // Map<ingredient_name_lower, count> für Counter-Bubbles
 
-// Favoriten-Popup (Stern-Klick in der Liste)
-const favPopup = ref(null);           // { item, x, y, arrowX } oder null
-const favPopupFavorites = ref([]);    // Favoriten für das Popup
-const favPopupLoading = ref(false);
+/** Gemergte Produktliste: Favoriten zuerst, dann Suchergebnisse ohne Duplikate */
+const pickerAllProducts = computed(() => {
+  const favIds = new Set(pickerFavorites.value.map(f => f.rewe_product_id));
+  const searchProducts = pickerProducts.value.filter(p => !favIds.has(p.id));
+
+  // Favoriten als Product-Objekte aufbereiten
+  const favProducts = pickerFavorites.value.map(f => ({
+    id: f.rewe_product_id,
+    name: f.rewe_product_name,
+    price: f.rewe_price,
+    packageSize: f.rewe_package_size,
+    imageUrl: f.rewe_image_url,
+    _isFavorite: true,
+    _isUnavailable: !pickerProducts.value.some(p => p.id === f.rewe_product_id),
+    _favId: f.id,
+  }));
+
+  return [...favProducts, ...searchProducts];
+});
+
+/** Prüft ob ein Produkt in den Favoriten ist */
+function isFavorite(productId) {
+  return pickerFavorites.value.some(f => f.rewe_product_id === productId);
+}
+
+/** Favoriten-Status eines Produkts im Picker toggeln */
+async function toggleProductFavorite(product) {
+  if (!pickerItem.value) return;
+  const ingredientName = pickerItem.value.ingredient_name;
+
+  if (product._isFavorite) {
+    // Favorit entfernen
+    const fav = pickerFavorites.value.find(f => f.rewe_product_id === product.id);
+    if (fav) {
+      try {
+        await shoppingStore.deletePreference(fav.id);
+        pickerFavorites.value = pickerFavorites.value.filter(f => f.id !== fav.id);
+        showSuccess('Aus Favoriten entfernt');
+      } catch {
+        showError('Favorit konnte nicht entfernt werden.');
+      }
+    }
+  } else {
+    // Zu Favoriten hinzufügen
+    try {
+      await shoppingStore.addPreference(ingredientName, product);
+      // Favoriten neu laden
+      const data = await shoppingStore.fetchPreferencesByIngredient(ingredientName);
+      pickerFavorites.value = data.preferences || [];
+      showSuccess('Zu Favoriten hinzugefügt ⭐');
+    } catch {
+      showError('Favorit konnte nicht gespeichert werden.');
+    }
+  }
+}
 
 // Manuelles Hinzufügen
 const newItem = ref({ name: '', amount: null, unit: '' });
@@ -3669,44 +3615,6 @@ async function loadApiKey() {
   }
 }
 
-/** Favoriten-Popup unter dem Stern öffnen */
-async function openFavPopup(item, event) {
-  // Bereits offen → schließen
-  if (favPopup.value?.item?.id === item.id) {
-    favPopup.value = null;
-    return;
-  }
-
-  const rect = event.currentTarget.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const POPUP_WIDTH = 280;
-  const half = POPUP_WIDTH / 2;
-  const minLeft = 8 + half;
-  const maxLeft = vw - 8 - half;
-  const centerX = rect.left + rect.width / 2;
-  const clampedX = Math.max(minLeft, Math.min(maxLeft, centerX));
-  const arrowX = centerX - clampedX;
-
-  favPopup.value = { item, x: clampedX, y: rect.bottom + 6, arrowX };
-  favPopupLoading.value = true;
-  favPopupFavorites.value = [];
-
-  try {
-    const data = await shoppingStore.fetchPreferencesByIngredient(item.ingredient_name);
-    favPopupFavorites.value = data.preferences || [];
-    favCounts.value.set(item.ingredient_name.toLowerCase().trim(), data.preferences?.length || 0);
-  } catch {
-    // Silent
-  } finally {
-    favPopupLoading.value = false;
-  }
-}
-
-function closeFavPopup() {
-  favPopup.value = null;
-  favPopupFavorites.value = [];
-}
-
 /** Produkt-Picker öffnen: Alternativen für eine Zutat suchen */
 async function openProductPicker(item) {
   pickerItem.value = item;
@@ -3724,10 +3632,6 @@ async function openProductPicker(item) {
     ]);
     pickerProducts.value = searchData.products || [];
     pickerFavorites.value = favData.preferences || [];
-    // Counter-Cache aktualisieren
-    if (favData.preferences?.length) {
-      favCounts.value.set(item.ingredient_name.toLowerCase().trim(), favData.preferences.length);
-    }
   } catch {
     showError('REWE-Suche fehlgeschlagen.');
   } finally {
@@ -3793,100 +3697,29 @@ async function selectFavorite(fav) {
   }
 }
 
-/** Alle Favoriten-Zählungen für die aktuelle Liste laden */
-async function refreshAllFavCounts() {
-  try {
-    const data = await shoppingStore.fetchPreferences();
-    const map = new Map();
-    for (const p of data.preferences || []) {
-      const key = p.ingredient_name.toLowerCase().trim();
-      map.set(key, (map.get(key) || 0) + 1);
-    }
-    favCounts.value = map;
-  } catch {
-    // Silent
-  }
-}
-
 /** Favoriten für die aktuelle Zutat neu laden */
 async function refreshPickerFavorites() {
   if (!pickerItem.value) return;
   try {
     const data = await shoppingStore.fetchPreferencesByIngredient(pickerItem.value.ingredient_name);
     pickerFavorites.value = data.preferences || [];
-    favCounts.value.set(pickerItem.value.ingredient_name.toLowerCase().trim(), data.preferences?.length || 0);
   } catch {
     // Silent
   }
 }
 
-/** Favoriten-Popup: Favorit auswählen und zuweisen */
-async function selectFavoriteFromPopup(fav) {
-  if (!favPopup.value?.item) return;
-  const product = {
-    id: fav.rewe_product_id,
-    name: fav.rewe_product_name,
-    price: fav.rewe_price,
-    packageSize: fav.rewe_package_size,
-    imageUrl: fav.rewe_image_url,
-  };
-  try {
-    await shoppingStore.setReweProduct(favPopup.value.item.id, product);
-    showSuccess(`${product.name} zugewiesen! ⭐`);
-    favCounts.value.set(fav.ingredient_name.toLowerCase().trim(), favPopupFavorites.value.length);
-    closeFavPopup();
-  } catch {
-    showError('Produkt konnte nicht zugewiesen werden.');
-  }
-}
-
-/** Favoriten-Popup: Favorit entfernen */
-async function removeFavoriteFromPopup(fav) {
-  try {
-    await shoppingStore.deletePreference(fav.id);
-    favPopupFavorites.value = favPopupFavorites.value.filter(f => f.id !== fav.id);
-    favCounts.value.set(fav.ingredient_name.toLowerCase().trim(), favPopupFavorites.value.length);
-    if (favPopupFavorites.value.length === 0) {
-      closeFavPopup();
-    }
-  } catch {
-    showError('Favorit konnte nicht entfernt werden.');
-  }
-}
-
-/** Favoriten-Popup: Reihenfolge ändern */
-async function moveFavoriteInPopup(fav, direction) {
-  const idx = favPopupFavorites.value.findIndex(f => f.id === fav.id);
-  if (idx === -1) return;
-  const newIdx = direction === 'up' ? idx - 1 : idx + 1;
-  if (newIdx < 0 || newIdx >= favPopupFavorites.value.length) return;
-
-  const swapped = [...favPopupFavorites.value];
-  [swapped[idx], swapped[newIdx]] = [swapped[newIdx], swapped[idx]];
-  favPopupFavorites.value = swapped;
-
-  try {
-    await Promise.all(swapped.map((f, i) => shoppingStore.reorderPreference(f.id, i)));
-  } catch {
-    showError('Reihenfolge konnte nicht gespeichert werden.');
-    const data = await shoppingStore.fetchPreferencesByIngredient(fav.ingredient_name);
-    favPopupFavorites.value = data.preferences || [];
-  }
-}
-
-/** Einzelnen Favoriten entfernen (Picker-Sidebar) */
+/** Einzelnen Favoriten entfernen */
 async function removeFavorite(fav) {
   try {
     await shoppingStore.deletePreference(fav.id);
     pickerFavorites.value = pickerFavorites.value.filter(f => f.id !== fav.id);
-    favCounts.value.set(fav.ingredient_name.toLowerCase().trim(), pickerFavorites.value.length);
     showSuccess('Favorit entfernt');
   } catch {
     showError('Favorit konnte nicht entfernt werden.');
   }
 }
 
-/** Favoriten-Reihenfolge ändern (Picker-Sidebar) */
+/** Favoriten-Reihenfolge ändern (Picker) */
 async function moveFavorite(fav, direction) {
   const idx = pickerFavorites.value.findIndex(f => f.id === fav.id);
   if (idx === -1) return;
@@ -3911,8 +3744,6 @@ onMounted(async () => {
   shoppingStore.fetchUserSettings();
   aliasStore.fetchAliases();
   aliasStore.fetchBlockedIngredients();
-  // Favoriten-Zählungen vorab laden (für Counter-Bubbles)
-  refreshAllFavCounts();
   // Verlauf immer laden (für History-Button)
   shoppingStore.fetchListHistory();
   // Verfügbare Pläne vorladen (für Datums-Defaults)
@@ -3943,7 +3774,6 @@ onUnmounted(() => {
 
 function closeMatchReason() {
   activeMatchReason.value = null;
-  closeFavPopup();
 }
 
 // ============================================
