@@ -17,7 +17,7 @@ import { resolve, join } from 'path';
 import sharp from 'sharp';
 import { config } from '../config/env.js';
 import { safePath, generateId, sanitize, validateDate } from '../utils/helpers.js';
-import { resetProvider } from '../services/ai/provider.js';
+import { resetProvider, getAIProvider } from '../services/ai/provider.js';
 
 /**
  * Generiert ein sicheres Zufallspasswort (16 Zeichen, alphanumerisch + Sonderzeichen).
@@ -45,10 +45,13 @@ const ALLOWED_SETTINGS = new Set([
   'ai_shopping_review_instant',
   'openai_api_key',
   'openai_model',
+  'openai_simple_model',
   'anthropic_api_key',
   'anthropic_model',
+  'anthropic_simple_model',
   'ollama_base_url',
   'ollama_model',
+  'ollama_simple_model',
   'requesty_api_key',
   'requesty_base_url',
   'requesty_model',
@@ -561,6 +564,32 @@ export default async function adminRoutes(fastify) {
     logAdminAction(request.user.id, 'Einstellungen geändert', Object.keys(filteredSettings).join(', '));
 
     return { message: 'Einstellungen gespeichert.' };
+  });
+
+  // ============================================
+  // POST /api/admin/settings/test-ai - KI-Verbindung testen
+  // ============================================
+  fastify.post('/settings/test-ai', {
+    schema: {
+      description: 'KI-Verbindung mit aktuellem Provider testen',
+      tags: ['Admin'],
+      security: [{ bearerAuth: [] }],
+      querystring: {
+        type: 'object',
+        properties: {
+          simple: { type: 'boolean', default: false },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      const useSimple = request.query.simple === true || request.query.simple === 'true';
+      const ai = getAIProvider(useSimple ? { simple: true } : {});
+      const response = await ai.chat('Sage auf Deutsch kurz „Hallo, ich funktioniere!“ und bestätige, dass du bereit bist.');
+      return { success: true, response: response.trim().substring(0, 300) };
+    } catch (err) {
+      return reply.status(502).send({ success: false, error: err.message || 'Verbindung fehlgeschlagen' });
+    }
   });
 
   // ============================================

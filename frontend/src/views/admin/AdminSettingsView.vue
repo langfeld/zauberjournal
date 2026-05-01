@@ -137,6 +137,8 @@
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben wie Umrechnungs-Generierung verwendet (ohne Reasoning, günstiger & schneller).
             </p>
+            <TestAIButton />
+            <TestAIButton :simple="true" />
           </div>
 
           <!-- OpenAI -->
@@ -146,6 +148,13 @@
               placeholder="sk-..." @save="saveSetting('openai_api_key', settingsMap.openai_api_key)" />
             <SettingsInput label="Modell" v-model="settingsMap.openai_model"
               placeholder="gpt-4o" @save="saveSetting('openai_model', settingsMap.openai_model)" />
+            <SettingsInput label="Schnelles Modell" v-model="settingsMap.openai_simple_model"
+              placeholder="gpt-4o-mini" @save="saveSetting('openai_simple_model', settingsMap.openai_simple_model)" />
+            <p class="text-stone-400 dark:text-stone-500 text-xs">
+              Das schnelle Modell wird für einfache Aufgaben verwendet (günstiger & schneller).
+            </p>
+            <TestAIButton />
+            <TestAIButton :simple="true" />
           </div>
 
           <!-- Anthropic -->
@@ -155,6 +164,13 @@
               placeholder="sk-ant-..." @save="saveSetting('anthropic_api_key', settingsMap.anthropic_api_key)" />
             <SettingsInput label="Modell" v-model="settingsMap.anthropic_model"
               placeholder="claude-sonnet-4-20250514" @save="saveSetting('anthropic_model', settingsMap.anthropic_model)" />
+            <SettingsInput label="Schnelles Modell" v-model="settingsMap.anthropic_simple_model"
+              placeholder="claude-haiku-4-20250414" @save="saveSetting('anthropic_simple_model', settingsMap.anthropic_simple_model)" />
+            <p class="text-stone-400 dark:text-stone-500 text-xs">
+              Das schnelle Modell wird für einfache Aufgaben verwendet (günstiger & schneller).
+            </p>
+            <TestAIButton />
+            <TestAIButton :simple="true" />
           </div>
 
           <!-- Ollama -->
@@ -164,6 +180,13 @@
               placeholder="http://localhost:11434" @save="saveSetting('ollama_base_url', settingsMap.ollama_base_url)" />
             <SettingsInput label="Modell" v-model="settingsMap.ollama_model"
               placeholder="llava" @save="saveSetting('ollama_model', settingsMap.ollama_model)" />
+            <SettingsInput label="Schnelles Modell" v-model="settingsMap.ollama_simple_model"
+              placeholder="" @save="saveSetting('ollama_simple_model', settingsMap.ollama_simple_model)" />
+            <p class="text-stone-400 dark:text-stone-500 text-xs">
+              Das schnelle Modell wird für einfache Aufgaben verwendet (günstiger & schneller).
+            </p>
+            <TestAIButton />
+            <TestAIButton :simple="true" />
           </div>
 
           <!-- Requesty.ai -->
@@ -180,6 +203,8 @@
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben wie Umrechnungs-Generierung verwendet (günstiger & schneller).
             </p>
+            <TestAIButton />
+            <TestAIButton :simple="true" />
           </div>
 
           <!-- KI-Feature-Einstellungen (für alle Provider) -->
@@ -432,6 +457,7 @@ import {
   ShoppingCart,
   Eye,
   EyeOff,
+  Zap,
 } from 'lucide-vue-next';
 
 const api = useApi();
@@ -509,6 +535,48 @@ async function runCleanup() {
 }
 
 onMounted(loadSettings);
+
+// ============================================
+// TestAIButton — Verbindung zum aktuellen KI-Provider testen
+// ============================================
+const TestAIButton = {
+  props: {
+    simple: { type: Boolean, default: false },
+  },
+  setup(props) {
+    const testing = ref(false);
+    const testResult = ref(null);
+
+    async function runTest() {
+      testing.value = true;
+      testResult.value = null;
+      try {
+        const url = '/admin/settings/test-ai' + (props.simple ? '?simple=true' : '');
+        const data = await api.post(url);
+        testResult.value = { ok: true, text: data.response.substring(0, 120) };
+      } catch (err) {
+        testResult.value = { ok: false, text: err.data?.error || err.message || 'Verbindung fehlgeschlagen' };
+      } finally {
+        testing.value = false;
+      }
+    }
+
+    return () => h('div', { class: 'flex items-center gap-3 pt-2' }, [
+      h('button', {
+        type: 'button',
+        onClick: runTest,
+        disabled: testing.value,
+        class: 'inline-flex items-center gap-1.5 bg-primary-50 dark:bg-primary-900/20 hover:bg-primary-100 dark:hover:bg-primary-900/30 disabled:opacity-50 px-3 py-1.5 border border-primary-200 dark:border-primary-800 rounded-lg text-primary-700 dark:text-primary-300 text-xs transition-colors disabled:cursor-not-allowed shrink-0'
+      }, [
+        h(testing.value ? RefreshCw : Zap, { class: 'w-3.5 h-3.5' + (testing.value ? ' animate-spin' : '') }),
+        testing.value ? 'Teste Verbindung...' : (props.simple ? 'Schnelles Modell testen' : 'Verbindung testen')
+      ]),
+      testResult.value ? h('span', {
+        class: testResult.value.ok ? 'text-green-600 dark:text-green-400 text-xs truncate max-w-[200px]' : 'text-red-600 dark:text-red-400 text-xs truncate max-w-[200px]'
+      }, testResult.value.ok ? `✅ ${testResult.value.text}` : `❌ ${testResult.value.text}`) : null
+    ]);
+  }
+};
 
 // ============================================
 // SettingsInput — Inline-Komponente für Einstellungsfelder
