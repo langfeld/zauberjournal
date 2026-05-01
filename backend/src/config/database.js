@@ -309,11 +309,13 @@ export function initializeDatabase() {
       rewe_product_name TEXT NOT NULL,
       rewe_price INTEGER,                             -- Cent, letzter bekannter Preis
       rewe_package_size TEXT,
+      rewe_image_url TEXT,
       times_selected INTEGER DEFAULT 1,               -- wie oft gewählt (Vertrauen)
+      sort_order INTEGER DEFAULT 0,                   -- Reihenfolge der Favoriten
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      UNIQUE(user_id, ingredient_name)
+      UNIQUE(user_id, ingredient_name, rewe_product_id)
     );
     CREATE INDEX IF NOT EXISTS idx_rewe_prefs_user ON rewe_product_preferences(user_id);
     CREATE INDEX IF NOT EXISTS idx_rewe_prefs_ingredient ON rewe_product_preferences(user_id, ingredient_name);
@@ -580,6 +582,54 @@ function migrateDatabase() {
   if (!rppCols.includes('rewe_image_url')) {
     db.exec("ALTER TABLE rewe_product_preferences ADD COLUMN rewe_image_url TEXT");
     console.log('  ↳ Migration: rewe_product_preferences.rewe_image_url hinzugefügt');
+  }
+
+  // Migration: rewe_product_preferences für Multi-Favoriten umbauen
+  // (sort_order hinzufügen, UNIQUE von (user_id, ingredient_name) auf (user_id, ingredient_name, rewe_product_id) ändern)
+  try {
+    const rppCols2 = db.prepare("PRAGMA table_info(rewe_product_preferences)").all().map(c => c.name);
+    if (rppCols2.length > 0 && !rppCols2.includes('sort_order')) {
+      const migrateRpp = db.transaction(() => {
+        db.exec(`
+          CREATE TABLE rewe_product_preferences_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            ingredient_name TEXT NOT NULL COLLATE NOCASE,
+            rewe_product_id TEXT NOT NULL,
+            rewe_product_name TEXT NOT NULL,
+            rewe_price INTEGER,
+            rewe_package_size TEXT,
+            rewe_image_url TEXT,
+            times_selected INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            UNIQUE(user_id, ingredient_name, rewe_product_id)
+          );
+          CREATE INDEX idx_rewe_prefs_user_new ON rewe_product_preferences_new(user_id);
+          CREATE INDEX idx_rewe_prefs_ingredient_new ON rewe_product_preferences_new(user_id, ingredient_name);
+        `);
+        // Daten migrieren (neuesten updated_at pro user_id + ingredient_name behalten)
+        db.exec(`
+          INSERT INTO rewe_product_preferences_new
+            (user_id, ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, times_selected, sort_order, created_at, updated_at)
+          SELECT user_id, ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, times_selected, 0, created_at, updated_at
+          FROM rewe_product_preferences
+          WHERE id IN (
+            SELECT MAX(id) FROM rewe_product_preferences GROUP BY user_id, ingredient_name
+          )
+        `);
+        db.exec(`
+          DROP TABLE rewe_product_preferences;
+          ALTER TABLE rewe_product_preferences_new RENAME TO rewe_product_preferences;
+        `);
+      });
+      migrateRpp();
+      console.log('  ↳ Migration: rewe_product_preferences für Multi-Favoriten umgebaut');
+    }
+  } catch (err) {
+    console.error('  ↳ Migration rewe_product_preferences fehlgeschlagen:', err.message);
   }
 
   // Spalte 'reasoning' in meal_plans hinzufügen (KI-/Algorithmus-Begründung)

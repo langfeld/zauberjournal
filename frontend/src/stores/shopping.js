@@ -562,6 +562,23 @@ export const useShoppingStore = defineStore('shopping', () => {
     return await api.get('/rewe/preferences');
   }
 
+  /** Alle Favoriten für eine bestimmte Zutat laden (Multi-Favoriten) */
+  async function fetchPreferencesByIngredient(ingredientName) {
+    return await api.get(`/rewe/preferences/${encodeURIComponent(ingredientName.toLowerCase().trim())}`);
+  }
+
+  /** Neuen Favoriten für eine Zutat hinzufügen */
+  async function addPreference(ingredientName, product) {
+    return await api.post('/rewe/preferences', {
+      ingredient_name: ingredientName,
+      rewe_product_id: product.id,
+      rewe_product_name: product.name,
+      rewe_price: product.price,
+      rewe_package_size: product.packageSize || null,
+      rewe_image_url: product.imageUrl || null,
+    });
+  }
+
   /** Einzelne Produkt-Präferenz löschen */
   async function deletePreference(prefId) {
     return await api.del(`/rewe/preferences/${prefId}`);
@@ -576,6 +593,11 @@ export const useShoppingStore = defineStore('shopping', () => {
       rewe_package_size: product.packageSize || null,
       rewe_image_url: product.imageUrl || null,
     });
+  }
+
+  /** Reihenfolge eines Favoriten ändern */
+  async function reorderPreference(prefId, sortOrder) {
+    return await api.put(`/rewe/preferences/${prefId}/reorder`, { sort_order: sortOrder });
   }
 
   /** Alle Produkt-Präferenzen löschen */
@@ -698,7 +720,7 @@ export const useShoppingStore = defineStore('shopping', () => {
     generateList, fetchActiveList, fetchListHistory, loadList, reactivateList, toggleItem, matchWithRewe, completePurchase, addItem, deleteItem, updateItem, moveToPantry,
     fetchPantryCheck, moveFromPantryToList,
     fetchAIReview, dismissIssue, dismissAllIssues, applyIssueSuggestion, fetchUserSettings, saveUserSetting,
-    searchReweProducts, setReweProduct, updateReweQuantity, fetchPreferences, deletePreference, updatePreference, clearAllPreferences,
+    searchReweProducts, setReweProduct, updateReweQuantity, fetchPreferences, fetchPreferencesByIngredient, addPreference, deletePreference, updatePreference, reorderPreference, clearAllPreferences,
     // Bring!
     bringStatus, bringLists, bringSending, bringImporting,
     fetchBringStatus, connectBring, fetchBringLists, setBringList, sendToBring, disconnectBring, importFromBring,

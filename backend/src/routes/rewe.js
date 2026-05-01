@@ -93,16 +93,20 @@ export default async function reweRoutes(fastify) {
       return reply.status(404).send({ error: 'Keine offenen Items in der Einkaufsliste' });
     }
 
-    // Gespeicherte Produkt-Präferenzen des Users laden
+    // Gespeicherte Produkt-Präferenzen des Users laden (Multi-Favoriten)
     const prefRows = db.prepare(
-      'SELECT ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url FROM rewe_product_preferences WHERE user_id = ?'
+      'SELECT ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, updated_at FROM rewe_product_preferences WHERE user_id = ? ORDER BY updated_at DESC, sort_order ASC'
     ).all(request.user.id);
 
-    const preferences = new Map(
-      prefRows.map(p => [p.ingredient_name.toLowerCase().trim(), p])
-    );
+    // Gruppiere Präferenzen nach Zutat (Array pro Zutat, sortiert)
+    const preferences = new Map();
+    for (const p of prefRows) {
+      const key = p.ingredient_name.toLowerCase().trim();
+      if (!preferences.has(key)) preferences.set(key, []);
+      preferences.get(key).push(p);
+    }
 
-    console.log(`📦 ${preferences.size} gespeicherte Produkt-Präferenzen geladen`);
+    console.log(`📦 ${prefRows.length} gespeicherte Produkt-Präferenzen (${preferences.size} Zutaten) geladen`);
 
     // User-spezifische REWE-Markt-Konfiguration laden
     const { marketId } = getUserReweConfig(request.user.id);
@@ -138,12 +142,12 @@ export default async function reweRoutes(fastify) {
         preferences,
         marketId,
         onPriceUpdate: (productId, ingredientName, newPrice, packageSize) => {
-          // Preis in der Präferenz-Tabelle aktualisieren
+          // Preis in der Präferenz-Tabelle aktualisieren (alle passenden Einträge)
           db.prepare(`
             UPDATE rewe_product_preferences
             SET rewe_price = ?, rewe_package_size = COALESCE(?, rewe_package_size), updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = ? AND ingredient_name = ?
-          `).run(newPrice, packageSize || null, request.user.id, ingredientName.toLowerCase().trim());
+            WHERE user_id = ? AND ingredient_name = ? AND rewe_product_id = ?
+          `).run(newPrice, packageSize || null, request.user.id, ingredientName.toLowerCase().trim(), productId);
         },
       },
     );
@@ -284,13 +288,125 @@ export default async function reweRoutes(fastify) {
     },
   }, async (request) => {
     const prefs = db.prepare(`
-      SELECT id, ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, times_selected, updated_at
+      SELECT id, ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, times_selected, sort_order, updated_at
       FROM rewe_product_preferences
       WHERE user_id = ?
-      ORDER BY ingredient_name ASC
+      ORDER BY ingredient_name ASC, sort_order ASC, updated_at DESC
     `).all(request.user.id);
 
     return { preferences: prefs, total: prefs.length };
+  });
+
+  /**
+   * GET /api/rewe/preferences/:ingredientName
+   * Alle gespeicherten Favoriten für eine bestimmte Zutat laden (Multi-Favoriten)
+   */
+  fastify.get('/preferences/:ingredientName', {
+    schema: {
+      description: 'Alle REWE Favoriten für eine Zutat laden',
+      tags: ['REWE'],
+      security: [{ bearerAuth: [] }],
+      params: {
+        type: 'object',
+        required: ['ingredientName'],
+        properties: {
+          ingredientName: { type: 'string', minLength: 1 },
+        },
+      },
+    },
+  }, async (request) => {
+    const ingredientName = decodeURIComponent(request.params.ingredientName).toLowerCase().trim();
+    const prefs = db.prepare(`
+      SELECT id, ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, times_selected, sort_order, updated_at
+      FROM rewe_product_preferences
+      WHERE user_id = ? AND ingredient_name = ?
+      ORDER BY updated_at DESC, sort_order ASC
+    `).all(request.user.id, ingredientName);
+
+    return { preferences: prefs, total: prefs.length };
+  });
+
+  /**
+   * POST /api/rewe/preferences
+   * Neuen Favoriten für eine Zutat hinzufügen (oder bestehenden aktualisieren)
+   */
+  fastify.post('/preferences', {
+    schema: {
+      description: 'Neuen REWE Favoriten hinzufügen',
+      tags: ['REWE'],
+      security: [{ bearerAuth: [] }],
+      body: {
+        type: 'object',
+        required: ['ingredient_name', 'rewe_product_id', 'rewe_product_name', 'rewe_price'],
+        properties: {
+          ingredient_name: { type: 'string', minLength: 1 },
+          rewe_product_id: { type: 'string' },
+          rewe_product_name: { type: 'string' },
+          rewe_price: { type: 'number' },
+          rewe_package_size: { type: ['string', 'null'] },
+          rewe_image_url: { type: ['string', 'null'] },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url } = request.body;
+    const normalizedName = ingredient_name.toLowerCase().trim();
+
+    // Max sort_order für diese Zutat ermitteln
+    const maxSort = db.prepare(`
+      SELECT COALESCE(MAX(sort_order), 0) as max_sort
+      FROM rewe_product_preferences
+      WHERE user_id = ? AND ingredient_name = ?
+    `).get(request.user.id, normalizedName);
+
+    const result = db.prepare(`
+      INSERT INTO rewe_product_preferences (user_id, ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, times_selected, sort_order, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, ingredient_name, rewe_product_id) DO UPDATE SET
+        rewe_product_name = excluded.rewe_product_name,
+        rewe_price = excluded.rewe_price,
+        rewe_package_size = excluded.rewe_package_size,
+        rewe_image_url = excluded.rewe_image_url,
+        times_selected = times_selected + 1,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(request.user.id, normalizedName, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size || null, rewe_image_url || null, (maxSort?.max_sort || 0) + 1);
+
+    const insertedId = result.lastInsertRowid;
+    const pref = db.prepare('SELECT * FROM rewe_product_preferences WHERE id = ?').get(insertedId);
+    return { message: 'Favorit gespeichert', preference: pref };
+  });
+
+  /**
+   * PUT /api/rewe/preferences/:id/reorder
+   * Reihenfolge eines Favoriten ändern
+   */
+  fastify.put('/preferences/:id/reorder', {
+    schema: {
+      description: 'Reihenfolge eines Favoriten ändern',
+      tags: ['REWE'],
+      security: [{ bearerAuth: [] }],
+      body: {
+        type: 'object',
+        required: ['sort_order'],
+        properties: {
+          sort_order: { type: 'integer' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { sort_order } = request.body;
+
+    const result = db.prepare(`
+      UPDATE rewe_product_preferences
+      SET sort_order = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND user_id = ?
+    `).run(sort_order, request.params.id, request.user.id);
+
+    if (!result.changes) {
+      return reply.status(404).send({ error: 'Präferenz nicht gefunden' });
+    }
+
+    return { message: 'Reihenfolge aktualisiert' };
   });
 
   /**

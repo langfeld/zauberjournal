@@ -700,19 +700,26 @@ export default async function shoppingRoutes(fastify) {
       WHERE id = ?
     `).run(productId, productName, price, packageSize || null, quantity, imageUrl || null, item.id);
 
-    // 2. Produkt-Präferenz speichern/aktualisieren (merkt sich die Auswahl für nächstes Mal)
+    // 2. Produkt-Präferenz als Favorit speichern (Multi-Favoriten)
+    // Wenn das Produkt noch kein Favorit ist → neu hinzufügen mit sort_order = max + 1
+    // Wenn es bereits ein Favorit ist → aktualisieren (updated_at = jetzt, times_selected + 1)
+    const maxSort = db.prepare(`
+      SELECT COALESCE(MAX(sort_order), 0) as max_sort
+      FROM rewe_product_preferences
+      WHERE user_id = ? AND ingredient_name = ?
+    `).get(request.user.id, item.ingredient_name.toLowerCase().trim());
+
     db.prepare(`
-      INSERT INTO rewe_product_preferences (user_id, ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, times_selected, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-      ON CONFLICT(user_id, ingredient_name) DO UPDATE SET
-        rewe_product_id = excluded.rewe_product_id,
+      INSERT INTO rewe_product_preferences (user_id, ingredient_name, rewe_product_id, rewe_product_name, rewe_price, rewe_package_size, rewe_image_url, times_selected, sort_order, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, ingredient_name, rewe_product_id) DO UPDATE SET
         rewe_product_name = excluded.rewe_product_name,
         rewe_price = excluded.rewe_price,
         rewe_package_size = excluded.rewe_package_size,
         rewe_image_url = excluded.rewe_image_url,
         times_selected = times_selected + 1,
         updated_at = CURRENT_TIMESTAMP
-    `).run(request.user.id, item.ingredient_name.toLowerCase().trim(), productId, productName, price, packageSize || null, imageUrl || null);
+    `).run(request.user.id, item.ingredient_name.toLowerCase().trim(), productId, productName, price, packageSize || null, imageUrl || null, (maxSort?.max_sort || 0) + 1);
 
     return {
       message: 'REWE-Produkt aktualisiert',

@@ -797,20 +797,30 @@ export async function matchShoppingListWithRewe(shoppingItems, onProgress, optio
     let match = null;
     let fromPreference = false;
 
-    // 1. Gespeicherte Präferenz prüfen
-    const pref = preferences?.get(item.name.toLowerCase().trim());
-    if (pref) {
+    // 1. Gespeicherte Präferenzen prüfen (Multi-Favoriten)
+    const prefs = preferences?.get(item.name.toLowerCase().trim());
+    if (prefs && prefs.length > 0) {
       const { products } = await searchProducts(item.name, { marketId });
-      let found = products.find(p => p.id === pref.rewe_product_id);
+      let found = null;
+      let matchedPref = null;
 
-      if (!found && pref.rewe_product_name) {
-        console.log(`  🔄 ${item.name}: Nicht per Zutatname gefunden → suche per Produktname "${pref.rewe_product_name}"…`);
-        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN));
-        const { products: prodByName } = await searchProducts(pref.rewe_product_name, { marketId });
-        found = prodByName.find(p => p.id === pref.rewe_product_id);
+      // Prüfe Favoriten in Reihenfolge (sort_order ASC, updated_at DESC)
+      for (const pref of prefs) {
+        let candidate = products.find(p => p.id === pref.rewe_product_id);
+
+        if (!candidate && pref.rewe_product_name) {
+          const { products: prodByName } = await searchProducts(pref.rewe_product_name, { marketId });
+          candidate = prodByName.find(p => p.id === pref.rewe_product_id);
+        }
+
+        if (candidate) {
+          found = candidate;
+          matchedPref = pref;
+          break; // Erster verfügbarer Favorit wird verwendet
+        }
       }
 
-      if (found) {
+      if (found && matchedPref) {
         const packagesNeeded = calculatePackagesNeeded(item.amount, item.unit, found.parsedAmount, found.parsedUnit, found.parsedPieceCount);
         match = {
           product: found,
@@ -824,18 +834,20 @@ export async function matchShoppingListWithRewe(shoppingItems, onProgress, optio
         fromPreference = true;
         matchedCount++;
 
-        if (found.price !== pref.rewe_price && onPriceUpdate) {
-          onPriceUpdate(pref.rewe_product_id, item.name, found.price, found.packageSize);
+        if (found.price !== matchedPref.rewe_price && onPriceUpdate) {
+          onPriceUpdate(matchedPref.rewe_product_id, item.name, found.price, found.packageSize);
         }
 
-        const priceChange = found.price !== pref.rewe_price
-          ? ` (Preis: ${formatPrice(pref.rewe_price)} → ${formatPrice(found.price)})`
+        const priceChange = found.price !== matchedPref.rewe_price
+          ? ` (Preis: ${formatPrice(matchedPref.rewe_price)} → ${formatPrice(found.price)})`
           : '';
         const qtyInfo = packagesNeeded > 1 ? ` [${packagesNeeded}×]` : '';
-        console.log(`  ★ ${item.name} → ${found.name} (gemerkt${priceChange})${qtyInfo}`);
+        const favIndex = prefs.indexOf(matchedPref) + 1;
+        const favLabel = prefs.length > 1 ? ` (Favorit ${favIndex}/${prefs.length})` : '';
+        console.log(`  ★ ${item.name} → ${found.name} (gemerkt${favLabel}${priceChange})${qtyInfo}`);
       } else {
-        // Produkt nicht mehr verfügbar → zur KI-Batch-Queue hinzufügen
-        console.log(`  ⚠ ${item.name}: Gemerktes Produkt "${pref.rewe_product_name}" nicht mehr verfügbar → suche Alternative…`);
+        // Kein Favorit verfügbar → zur KI-Batch-Queue hinzufügen
+        console.log(`  ⚠ ${item.name}: Keiner der ${prefs.length} gemerkten Produkte verfügbar → suche Alternative…`);
         const { products: searchResults } = await searchProducts(item.name, { marketId });
         const withPrice = searchResults.filter(p => p.price);
         if (withPrice.length > 0) {
