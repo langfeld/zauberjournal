@@ -137,138 +137,6 @@
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben wie Umrechnungs-Generierung verwendet (ohne Reasoning, günstiger & schneller).
             </p>
-
-            <!-- Rezept-Parsing: Instant-Modus -->
-            <div class="flex justify-between items-center pt-2 border-stone-200 dark:border-stone-700 border-t">
-              <div>
-                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">Rezept-Import: Instant-Modus</p>
-                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt K2.5 Instant (ohne Thinking) für Rezept-Import &amp; -Parsing — schneller, aber evtl. weniger genau</p>
-              </div>
-              <button
-                @click="toggleSetting('kimi_recipe_instant')"
-                :class="[
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
-                  settingsMap.kimi_recipe_instant === 'true' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
-                ]"
-              >
-                <span
-                  :class="[
-                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                    settingsMap.kimi_recipe_instant === 'true' ? 'translate-x-5' : 'translate-x-0'
-                  ]"
-                ></span>
-              </button>
-            </div>
-
-            <!-- Einkaufslisten-Check: Instant-Modus -->
-            <div class="flex justify-between items-center pt-2 border-stone-200 dark:border-stone-700 border-t">
-              <div>
-                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">Einkaufslisten-Check: Instant-Modus</p>
-                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt Instant-Modus (ohne Thinking) für den KI-Einkaufslisten-Check — schneller, aber evtl. weniger genau</p>
-              </div>
-              <button
-                @click="toggleSetting('ai_shopping_review_instant')"
-                :class="[
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
-                  settingsMap.ai_shopping_review_instant === 'true' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
-                ]"
-              >
-                <span
-                  :class="[
-                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                    settingsMap.ai_shopping_review_instant === 'true' ? 'translate-x-5' : 'translate-x-0'
-                  ]"
-                ></span>
-              </button>
-            </div>
-
-            <!-- KI-Vorratsabzug -->
-            <div class="flex justify-between items-center pt-2 border-stone-200 dark:border-stone-700 border-t">
-              <div>
-                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">KI-Vorratsabzug beim Kochen</p>
-                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt KI für intelligenten Vorratsabzug — erkennt Synonyme, rechnet Einheiten um und matcht ähnliche Zutaten</p>
-              </div>
-              <button
-                @click="toggleSetting('ai_pantry_deduction')"
-                :class="[
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
-                  settingsMap.ai_pantry_deduction === 'true' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
-                ]"
-              >
-                <span
-                  :class="[
-                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                    settingsMap.ai_pantry_deduction === 'true' ? 'translate-x-5' : 'translate-x-0'
-                  ]"
-                ></span>
-              </button>
-            </div>
-
-            <!-- KI-Vorratsabzug: Instant-Modus -->
-            <div v-if="settingsMap.ai_pantry_deduction === 'true'" class="flex justify-between items-center pt-2 pl-4 border-stone-200 dark:border-stone-700 border-t">
-              <div>
-                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">↳ Vorratsabzug: Instant-Modus</p>
-                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt Instant-Modus (ohne Thinking) für den Vorratsabzug — schneller, aber evtl. weniger genau</p>
-              </div>
-              <button
-                @click="toggleSetting('ai_pantry_deduction_instant')"
-                :class="[
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
-                  settingsMap.ai_pantry_deduction_instant !== 'false' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
-                ]"
-              >
-                <span
-                  :class="[
-                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                    settingsMap.ai_pantry_deduction_instant !== 'false' ? 'translate-x-5' : 'translate-x-0'
-                  ]"
-                ></span>
-              </button>
-            </div>
-
-            <!-- KI-Vorrats-Transfer -->
-            <div class="flex justify-between items-center pt-2 border-stone-200 dark:border-stone-700 border-t">
-              <div>
-                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">KI-Vorrats-Transfer</p>
-                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt KI beim Verschieben von Einkaufsartikeln in den Vorratsschrank — normalisiert Namen, weist Kategorien zu und matcht existierende Einträge</p>
-              </div>
-              <button
-                @click="toggleSetting('ai_pantry_transfer')"
-                :class="[
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
-                  settingsMap.ai_pantry_transfer === 'true' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
-                ]"
-              >
-                <span
-                  :class="[
-                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                    settingsMap.ai_pantry_transfer === 'true' ? 'translate-x-5' : 'translate-x-0'
-                  ]"
-                ></span>
-              </button>
-            </div>
-
-            <!-- KI-Vorrats-Transfer: Instant-Modus -->
-            <div v-if="settingsMap.ai_pantry_transfer === 'true'" class="flex justify-between items-center pt-2 pl-4 border-stone-200 dark:border-stone-700 border-t">
-              <div>
-                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">↳ Vorrats-Transfer: Instant-Modus</p>
-                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt Instant-Modus (ohne Thinking) für den Vorrats-Transfer — schneller, aber evtl. weniger genau</p>
-              </div>
-              <button
-                @click="toggleSetting('ai_pantry_transfer_instant')"
-                :class="[
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
-                  settingsMap.ai_pantry_transfer_instant !== 'false' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
-                ]"
-              >
-                <span
-                  :class="[
-                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                    settingsMap.ai_pantry_transfer_instant !== 'false' ? 'translate-x-5' : 'translate-x-0'
-                  ]"
-                ></span>
-              </button>
-            </div>
           </div>
 
           <!-- OpenAI -->
@@ -312,6 +180,143 @@
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben wie Umrechnungs-Generierung verwendet (günstiger & schneller).
             </p>
+          </div>
+
+          <!-- KI-Feature-Einstellungen (für alle Provider) -->
+          <div class="space-y-3 pt-4 border-stone-200 dark:border-stone-700 border-t">
+            <h3 class="font-medium text-primary-600 dark:text-primary-400 text-sm">KI-Feature-Einstellungen</h3>
+
+            <!-- Rezept-Parsing: Instant-Modus -->
+            <div class="flex justify-between items-center pt-2 border-stone-200 dark:border-stone-700 border-t">
+              <div>
+                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">Rezept-Import: Instant-Modus</p>
+                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt das schnelle Modell für Rezept-Import &amp; -Parsing — schneller, aber evtl. weniger genau</p>
+              </div>
+              <button
+                @click="toggleSetting('kimi_recipe_instant')"
+                :class="[
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
+                  settingsMap.kimi_recipe_instant === 'true' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    settingsMap.kimi_recipe_instant === 'true' ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                ></span>
+              </button>
+            </div>
+
+            <!-- Einkaufslisten-Check: Instant-Modus -->
+            <div class="flex justify-between items-center pt-2 border-stone-200 dark:border-stone-700 border-t">
+              <div>
+                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">Einkaufslisten-Check: Instant-Modus</p>
+                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt das schnelle Modell für den KI-Einkaufslisten-Check — schneller, aber evtl. weniger genau</p>
+              </div>
+              <button
+                @click="toggleSetting('ai_shopping_review_instant')"
+                :class="[
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
+                  settingsMap.ai_shopping_review_instant === 'true' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    settingsMap.ai_shopping_review_instant === 'true' ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                ></span>
+              </button>
+            </div>
+
+            <!-- KI-Vorratsabzug -->
+            <div class="flex justify-between items-center pt-2 border-stone-200 dark:border-stone-700 border-t">
+              <div>
+                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">KI-Vorratsabzug beim Kochen</p>
+                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt KI für intelligenten Vorratsabzug — erkennt Synonyme, rechnet Einheiten um und matcht ähnliche Zutaten</p>
+              </div>
+              <button
+                @click="toggleSetting('ai_pantry_deduction')"
+                :class="[
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
+                  settingsMap.ai_pantry_deduction === 'true' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    settingsMap.ai_pantry_deduction === 'true' ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                ></span>
+              </button>
+            </div>
+
+            <!-- KI-Vorratsabzug: Instant-Modus -->
+            <div v-if="settingsMap.ai_pantry_deduction === 'true'" class="flex justify-between items-center pt-2 pl-4 border-stone-200 dark:border-stone-700 border-t">
+              <div>
+                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">↳ Vorratsabzug: Instant-Modus</p>
+                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt das schnelle Modell für den Vorratsabzug — schneller, aber evtl. weniger genau</p>
+              </div>
+              <button
+                @click="toggleSetting('ai_pantry_deduction_instant')"
+                :class="[
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
+                  settingsMap.ai_pantry_deduction_instant !== 'false' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    settingsMap.ai_pantry_deduction_instant !== 'false' ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                ></span>
+              </button>
+            </div>
+
+            <!-- KI-Vorrats-Transfer -->
+            <div class="flex justify-between items-center pt-2 border-stone-200 dark:border-stone-700 border-t">
+              <div>
+                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">KI-Vorrats-Transfer</p>
+                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt KI beim Verschieben von Einkaufsartikeln in den Vorratsschrank — normalisiert Namen, weist Kategorien zu und matcht existierende Einträge</p>
+              </div>
+              <button
+                @click="toggleSetting('ai_pantry_transfer')"
+                :class="[
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
+                  settingsMap.ai_pantry_transfer === 'true' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    settingsMap.ai_pantry_transfer === 'true' ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                ></span>
+              </button>
+            </div>
+
+            <!-- KI-Vorrats-Transfer: Instant-Modus -->
+            <div v-if="settingsMap.ai_pantry_transfer === 'true'" class="flex justify-between items-center pt-2 pl-4 border-stone-200 dark:border-stone-700 border-t">
+              <div>
+                <p class="font-medium text-stone-700 dark:text-stone-200 text-sm">↳ Vorrats-Transfer: Instant-Modus</p>
+                <p class="mt-0.5 text-stone-400 dark:text-stone-500 text-xs">Nutzt das schnelle Modell für den Vorrats-Transfer — schneller, aber evtl. weniger genau</p>
+              </div>
+              <button
+                @click="toggleSetting('ai_pantry_transfer_instant')"
+                :class="[
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer',
+                  settingsMap.ai_pantry_transfer_instant !== 'false' ? 'bg-primary-600' : 'bg-stone-300 dark:bg-stone-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    settingsMap.ai_pantry_transfer_instant !== 'false' ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                ></span>
+              </button>
+            </div>
           </div>
         </div>
       </section>
