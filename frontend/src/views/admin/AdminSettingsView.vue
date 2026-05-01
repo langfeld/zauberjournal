@@ -131,14 +131,20 @@
             <SettingsInput label="Base-URL" v-model="settingsMap.kimi_base_url"
               placeholder="https://api.moonshot.ai/v1" @save="saveSetting('kimi_base_url', settingsMap.kimi_base_url)" />
             <SettingsInput label="Modell" v-model="settingsMap.kimi_model"
-              placeholder="kimi-k2.5" @save="saveSetting('kimi_model', settingsMap.kimi_model)" />
+              placeholder="kimi-k2.5" @save="saveSetting('kimi_model', settingsMap.kimi_model)">
+              <template #suffix>
+                <TestAIButton />
+              </template>
+            </SettingsInput>
             <SettingsInput label="Schnelles Modell" v-model="settingsMap.kimi_simple_model"
-              placeholder="kimi-k2.5" @save="saveSetting('kimi_simple_model', settingsMap.kimi_simple_model)" />
+              placeholder="kimi-k2.5" @save="saveSetting('kimi_simple_model', settingsMap.kimi_simple_model)">
+              <template #suffix>
+                <TestAIButton :simple="true" />
+              </template>
+            </SettingsInput>
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben wie Umrechnungs-Generierung verwendet (ohne Reasoning, günstiger & schneller).
             </p>
-            <TestAIButton />
-            <TestAIButton :simple="true" />
           </div>
 
           <!-- OpenAI -->
@@ -147,14 +153,20 @@
             <SettingsInput label="API-Key" v-model="settingsMap.openai_api_key" type="password"
               placeholder="sk-..." @save="saveSetting('openai_api_key', settingsMap.openai_api_key)" />
             <SettingsInput label="Modell" v-model="settingsMap.openai_model"
-              placeholder="gpt-4o" @save="saveSetting('openai_model', settingsMap.openai_model)" />
+              placeholder="gpt-4o" @save="saveSetting('openai_model', settingsMap.openai_model)">
+              <template #suffix>
+                <TestAIButton />
+              </template>
+            </SettingsInput>
             <SettingsInput label="Schnelles Modell" v-model="settingsMap.openai_simple_model"
-              placeholder="gpt-4o-mini" @save="saveSetting('openai_simple_model', settingsMap.openai_simple_model)" />
+              placeholder="gpt-4o-mini" @save="saveSetting('openai_simple_model', settingsMap.openai_simple_model)">
+              <template #suffix>
+                <TestAIButton :simple="true" />
+              </template>
+            </SettingsInput>
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben verwendet (günstiger & schneller).
             </p>
-            <TestAIButton />
-            <TestAIButton :simple="true" />
           </div>
 
           <!-- Anthropic -->
@@ -163,14 +175,20 @@
             <SettingsInput label="API-Key" v-model="settingsMap.anthropic_api_key" type="password"
               placeholder="sk-ant-..." @save="saveSetting('anthropic_api_key', settingsMap.anthropic_api_key)" />
             <SettingsInput label="Modell" v-model="settingsMap.anthropic_model"
-              placeholder="claude-sonnet-4-20250514" @save="saveSetting('anthropic_model', settingsMap.anthropic_model)" />
+              placeholder="claude-sonnet-4-20250514" @save="saveSetting('anthropic_model', settingsMap.anthropic_model)">
+              <template #suffix>
+                <TestAIButton />
+              </template>
+            </SettingsInput>
             <SettingsInput label="Schnelles Modell" v-model="settingsMap.anthropic_simple_model"
-              placeholder="claude-haiku-4-20250414" @save="saveSetting('anthropic_simple_model', settingsMap.anthropic_simple_model)" />
+              placeholder="claude-haiku-4-20250414" @save="saveSetting('anthropic_simple_model', settingsMap.anthropic_simple_model)">
+              <template #suffix>
+                <TestAIButton :simple="true" />
+              </template>
+            </SettingsInput>
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben verwendet (günstiger & schneller).
             </p>
-            <TestAIButton />
-            <TestAIButton :simple="true" />
           </div>
 
           <!-- Ollama -->
@@ -179,14 +197,20 @@
             <SettingsInput label="Base-URL" v-model="settingsMap.ollama_base_url"
               placeholder="http://localhost:11434" @save="saveSetting('ollama_base_url', settingsMap.ollama_base_url)" />
             <SettingsInput label="Modell" v-model="settingsMap.ollama_model"
-              placeholder="llava" @save="saveSetting('ollama_model', settingsMap.ollama_model)" />
+              placeholder="llava" @save="saveSetting('ollama_model', settingsMap.ollama_model)">
+              <template #suffix>
+                <TestAIButton />
+              </template>
+            </SettingsInput>
             <SettingsInput label="Schnelles Modell" v-model="settingsMap.ollama_simple_model"
-              placeholder="" @save="saveSetting('ollama_simple_model', settingsMap.ollama_simple_model)" />
+              placeholder="" @save="saveSetting('ollama_simple_model', settingsMap.ollama_simple_model)">
+              <template #suffix>
+                <TestAIButton :simple="true" />
+              </template>
+            </SettingsInput>
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben verwendet (günstiger & schneller).
             </p>
-            <TestAIButton />
-            <TestAIButton :simple="true" />
           </div>
 
           <!-- Requesty.ai -->
@@ -197,14 +221,20 @@
             <SettingsInput label="Base-URL" v-model="settingsMap.requesty_base_url"
               placeholder="https://router.requesty.ai/v1" @save="saveSetting('requesty_base_url', settingsMap.requesty_base_url)" />
             <SettingsInput label="Modell" v-model="settingsMap.requesty_model"
-              placeholder="gpt-4o" @save="saveSetting('requesty_model', settingsMap.requesty_model)" />
+              placeholder="gpt-4o" @save="saveSetting('requesty_model', settingsMap.requesty_model)">
+              <template #suffix>
+                <TestAIButton />
+              </template>
+            </SettingsInput>
             <SettingsInput label="Schnelles Modell" v-model="settingsMap.requesty_simple_model"
-              placeholder="gpt-4o-mini" @save="saveSetting('requesty_simple_model', settingsMap.requesty_simple_model)" />
+              placeholder="gpt-4o-mini" @save="saveSetting('requesty_simple_model', settingsMap.requesty_simple_model)">
+              <template #suffix>
+                <TestAIButton :simple="true" />
+              </template>
+            </SettingsInput>
             <p class="text-stone-400 dark:text-stone-500 text-xs">
               Das schnelle Modell wird für einfache Aufgaben wie Umrechnungs-Generierung verwendet (günstiger & schneller).
             </p>
-            <TestAIButton />
-            <TestAIButton :simple="true" />
           </div>
 
           <!-- KI-Feature-Einstellungen (für alle Provider) -->
@@ -561,7 +591,7 @@ const TestAIButton = {
       }
     }
 
-    return () => h('div', { class: 'flex items-center gap-3 pt-2' }, [
+    return () => h('div', { class: 'flex items-center gap-2' }, [
       h('button', {
         type: 'button',
         onClick: runTest,
@@ -569,10 +599,10 @@ const TestAIButton = {
         class: 'inline-flex items-center gap-1.5 bg-primary-50 dark:bg-primary-900/20 hover:bg-primary-100 dark:hover:bg-primary-900/30 disabled:opacity-50 px-3 py-1.5 border border-primary-200 dark:border-primary-800 rounded-lg text-primary-700 dark:text-primary-300 text-xs transition-colors disabled:cursor-not-allowed shrink-0'
       }, [
         h(testing.value ? RefreshCw : Zap, { class: 'w-3.5 h-3.5' + (testing.value ? ' animate-spin' : '') }),
-        testing.value ? 'Teste Verbindung...' : (props.simple ? 'Schnelles Modell testen' : 'Verbindung testen')
+        testing.value ? 'Teste...' : 'Test'
       ]),
       testResult.value ? h('span', {
-        class: testResult.value.ok ? 'text-green-600 dark:text-green-400 text-xs truncate max-w-[200px]' : 'text-red-600 dark:text-red-400 text-xs truncate max-w-[200px]'
+        class: (testResult.value.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400') + ' text-xs truncate max-w-[140px]'
       }, testResult.value.ok ? `✅ ${testResult.value.text}` : `❌ ${testResult.value.text}`) : null
     ]);
   }
@@ -589,7 +619,7 @@ const SettingsInput = {
     placeholder: { type: String, default: '' },
   },
   emits: ['update:modelValue', 'save'],
-  setup(props, { emit }) {
+  setup(props, { emit, slots }) {
     const showPassword = ref(false);
     const inputType = ref(props.type);
 
@@ -607,7 +637,7 @@ const SettingsInput = {
 
     return () => {
       const isPassword = props.type === 'password';
-      return h('div', { class: 'flex sm:flex-row flex-col sm:justify-between sm:items-center gap-2' }, [
+      const children = [
         h('label', { class: 'font-medium text-stone-600 dark:text-stone-300 text-sm shrink-0 w-28' }, props.label),
         h('div', { class: 'relative flex-1' }, [
           h('input', {
@@ -623,7 +653,13 @@ const SettingsInput = {
             onClick: toggleVisibility,
           }, [h(showPassword.value ? EyeOff : Eye, { class: 'w-4 h-4' })]) : null,
         ]),
-      ]);
+      ];
+      if (slots.suffix) {
+        children.push(
+          h('div', { class: 'flex items-center gap-2 shrink-0' }, slots.suffix())
+        );
+      }
+      return h('div', { class: 'flex sm:flex-row flex-col sm:justify-between sm:items-center gap-2' }, children);
     };
   },
 };
