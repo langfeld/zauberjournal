@@ -248,17 +248,21 @@ function formatDayLabel(dateStr) {
 </script>
 
 <style scoped>
-.modal-enter-active,
+.modal-enter-active {
+  transition: opacity 0.15s ease;
+}
 .modal-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.4s ease;
 }
 .modal-enter-from,
 .modal-leave-to {
   opacity: 0;
 }
-.modal-enter-active > div:last-child,
+.modal-enter-active > div:last-child {
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
 .modal-leave-active > div:last-child {
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .modal-enter-from > div:last-child,
 .modal-leave-to > div:last-child {

@@ -181,9 +181,10 @@
 
   <!-- Swap Modal (wiederverwendet aus altem Code) -->
   <Teleport to="body">
-    <div v-if="showSwapModal" class="z-50 fixed inset-0 flex justify-center items-center p-4" @click.self="showSwapModal = false">
-      <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-      <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+    <Transition name="swap-modal">
+      <div v-if="showSwapModal" class="z-50 fixed inset-0 flex justify-center items-center p-4" @click.self="showSwapModal = false">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+        <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
         <div class="flex items-center justify-between px-6 py-4 border-b border-stone-200 dark:border-stone-700">
           <h3 class="font-bold text-stone-800 dark:text-stone-100 text-lg">
             {{ swapEntry ? 'Rezept tauschen' : 'Rezept hinzufügen' }}
@@ -212,8 +213,9 @@
             Keine Vorschläge gefunden.
           </div>
         </div>
+        </div>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 
   <!-- Servings Popup -->
@@ -420,7 +422,10 @@ watch(() => store.selectedDateRange, (range) => {
 watch(showSwapModal, (isOpen) => {
   if (!isOpen && reopenPlanAfterSwap.value && selectedPlan.value) {
     reopenPlanAfterSwap.value = false;
-    showPlanModal.value = true;
+    // Kurze Verzögerung für nahtlosen Übergang
+    setTimeout(() => {
+      showPlanModal.value = true;
+    }, 50);
   }
 });
 
@@ -528,13 +533,16 @@ async function openSwapDialog(entry) {
   swapDateStr.value = entry?.plan_date || null;
   swapSearch.value = '';
 
-  // Inception vermeiden: Plan-Modal schließen wenn offen
-  if (showPlanModal.value) {
-    showPlanModal.value = false;
-    reopenPlanAfterSwap.value = true;
-  }
-
+  // Swap-Dialog sofort öffnen
   showSwapModal.value = true;
+
+  // Inception vermeiden: Plan-Modal verzögert schließen (Backdrop bleibt während der Übergangszeit)
+  if (showPlanModal.value) {
+    setTimeout(() => {
+      showPlanModal.value = false;
+      reopenPlanAfterSwap.value = true;
+    }, 100);
+  }
 
   const dayIdx = entry?.plan_date
     ? (new Date(entry.plan_date + 'T12:00:00').getDay() + 6) % 7
@@ -552,13 +560,16 @@ async function onAddEntryToPlan(dateStr) {
   swapDateStr.value = dateStr;
   swapSearch.value = '';
 
-  // Inception vermeiden: Plan-Modal schließen wenn offen
-  if (showPlanModal.value) {
-    showPlanModal.value = false;
-    reopenPlanAfterSwap.value = true;
-  }
-
+  // Swap-Dialog sofort öffnen
   showSwapModal.value = true;
+
+  // Inception vermeiden: Plan-Modal verzögert schließen
+  if (showPlanModal.value) {
+    setTimeout(() => {
+      showPlanModal.value = false;
+      reopenPlanAfterSwap.value = true;
+    }, 100);
+  }
 
   const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
   const data = await store.fetchSuggestions({
@@ -598,7 +609,9 @@ async function doSwap(newRecipeId) {
     // Plan-Modal wieder öffnen wenn es vorher offen war
     if (reopenPlanAfterSwap.value && selectedPlan.value) {
       reopenPlanAfterSwap.value = false;
-      showPlanModal.value = true;
+      setTimeout(() => {
+        showPlanModal.value = true;
+      }, 50);
     }
 
     store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
@@ -848,6 +861,18 @@ function addDays(dateStr, days) {
 }
 .fade-enter-from,
 .fade-leave-to {
+  opacity: 0;
+}
+
+/* Swap-Modal Transition – schnelles Einblenden für nahtlosen Übergang */
+.swap-modal-enter-active {
+  transition: opacity 0.15s ease;
+}
+.swap-modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.swap-modal-enter-from,
+.swap-modal-leave-to {
   opacity: 0;
 }
 </style>
