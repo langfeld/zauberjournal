@@ -150,11 +150,23 @@
     @close="showPlanModal = false"
     @entry-click="goToRecipe"
     @swap="openSwapDialog"
+    @toggle-cooked="toggleCooked"
+    @update-servings="openServingsPopup"
     @toggle-lock="toggleLockPlan"
     @duplicate="duplicatePlan"
     @shopping-list="createShoppingList"
     @remove="removeEntry"
+    @add-entry="onAddEntryToPlan"
     @delete="confirmDeletePlan"
+    @edit="showPlanEditModal = true"
+  />
+
+  <!-- Plan Edit Modal -->
+  <PlanEditModal
+    :is-open="showPlanEditModal"
+    :plan="selectedPlan"
+    @close="showPlanEditModal = false"
+    @save="doEditPlan"
   />
 
   <!-- Generate Dialog -->
@@ -265,6 +277,7 @@ import CalendarGrid from '@/components/mealplan/CalendarGrid.vue';
 import CalendarDayCell from '@/components/mealplan/CalendarDayCell.vue';
 import DayDetailDrawer from '@/components/mealplan/DayDetailDrawer.vue';
 import PlanDetailModal from '@/components/mealplan/PlanDetailModal.vue';
+import PlanEditModal from '@/components/mealplan/PlanEditModal.vue';
 import GenerateDialog from '@/components/mealplan/GenerateDialog.vue';
 import SuggestionBox from '@/components/mealplan/SuggestionBox.vue';
 import RecipeBrowserPanel from '@/components/mealplan/RecipeBrowserPanel.vue';
@@ -286,6 +299,7 @@ const showRecipeBrowser = ref(false);
 const showGenerateDialog = ref(false);
 const showDayDrawer = ref(false);
 const showPlanModal = ref(false);
+const showPlanEditModal = ref(false);
 const selectedDay = ref(null);
 const selectedPlan = ref(null);
 
@@ -295,6 +309,7 @@ const hoveredEndDate = ref(null);
 // Swap Modal
 const showSwapModal = ref(false);
 const swapEntry = ref(null);
+const swapDateStr = ref(null);
 const swapSearch = ref('');
 const swapSuggestions = ref([]);
 
@@ -501,6 +516,7 @@ function goToRecipe(recipeId) {
 // ── Swap ──
 async function openSwapDialog(entry) {
   swapEntry.value = entry;
+  swapDateStr.value = entry?.plan_date || null;
   swapSearch.value = '';
   showSwapModal.value = true;
 
@@ -514,10 +530,29 @@ async function openSwapDialog(entry) {
   swapSuggestions.value = data || [];
 }
 
+/** Rezept zu einem leeren Tag im Plan hinzufügen */
+async function onAddEntryToPlan(dateStr) {
+  swapEntry.value = null;
+  swapDateStr.value = dateStr;
+  swapSearch.value = '';
+  showSwapModal.value = true;
+
+  const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
+  const data = await store.fetchSuggestions({
+    dayIdx,
+    categoryId: mealTypes.value[0]?.id,
+  });
+  swapSuggestions.value = data || [];
+}
+
 async function doSwap(newRecipeId) {
   try {
     if (swapEntry.value) {
       await store.swapRecipe(swapEntry.value.meal_plan_id, swapEntry.value.id, newRecipeId);
+    } else if (swapDateStr.value && selectedPlan.value) {
+      // Neuen Eintrag für leeren Tag im Plan hinzufügen
+      const dayIdx = (new Date(swapDateStr.value + 'T12:00:00').getDay() + 6) % 7;
+      await store.addEntry(selectedPlan.value.id, newRecipeId, dayIdx, mealTypes.value[0]?.id, 4, swapDateStr.value);
     } else if (selectedDay.value) {
       // Neuen Eintrag für leeren Slot erstellen
       const dayIdx = (new Date(selectedDay.value.dateStr + 'T12:00:00').getDay() + 6) % 7;
@@ -535,6 +570,7 @@ async function doSwap(newRecipeId) {
       }
     }
     showSwapModal.value = false;
+    swapDateStr.value = null;
     store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
   } catch (err) {
     showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Tauschen', variant: 'warning' });
@@ -595,7 +631,11 @@ async function updateServings(delta) {
 // ── Lock ──
 async function toggleLockPlan(plan) {
   try {
-    await store.toggleLock(plan.id);
+    const result = await store.toggleLock(plan.id);
+    // Lokale Kopie aktualisieren, damit das Popup sofort reagiert
+    if (selectedPlan.value && selectedPlan.value.id === plan.id) {
+      selectedPlan.value.is_locked = result.is_locked;
+    }
   } catch (err) {
     showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Sperren', variant: 'warning' });
   }
@@ -617,6 +657,19 @@ async function duplicatePlan(plan) {
 // ── Shopping List ──
 function createShoppingList(plan) {
   router.push(`/shopping?planId=${plan.id}`);
+}
+
+// ── Edit Plan ──
+async function doEditPlan({ startDate, endDate }) {
+  if (!selectedPlan.value) return;
+  try {
+    await store.updatePlan(selectedPlan.value.id, { startDate, endDate });
+    showPlanEditModal.value = false;
+    store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
+    showAlert({ title: 'Gespeichert', message: 'Plan erfolgreich aktualisiert.', variant: 'success', showCancel: false });
+  } catch (err) {
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Aktualisieren', variant: 'warning', showCancel: false });
+  }
 }
 
 // ── Delete Plan ──

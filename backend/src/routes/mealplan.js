@@ -1165,6 +1165,45 @@ export default async function mealplanRoutes(fastify) {
   });
 
   // ─────────────────────────────────────────────
+  // PUT /:id – Plan bearbeiten (Start-/End-Datum)
+  // ─────────────────────────────────────────────
+  fastify.put('/:id', {
+    schema: {
+      description: 'Wochenplan bearbeiten (Start-/End-Datum)',
+      tags: ['Wochenplan'],
+      security: [{ bearerAuth: [] }],
+      body: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', format: 'date', description: 'Startdatum YYYY-MM-DD' },
+          endDate: { type: 'string', format: 'date', description: 'Enddatum YYYY-MM-DD' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { startDate, endDate } = request.body;
+    const userId = request.user.id;
+    const hhWhere = householdWhereClause(userId, request.householdId);
+
+    const plan = db.prepare(`SELECT id, is_locked FROM meal_plans WHERE id = ? AND (${hhWhere.clause})`).get(id, ...hhWhere.params);
+    if (!plan) return reply.status(404).send({ error: 'Plan nicht gefunden' });
+    if (plan.is_locked) return reply.status(409).send({ error: 'Fixierter Wochenplan kann nicht bearbeitet werden. Bitte zuerst die Fixierung aufheben.' });
+
+    if (!startDate || !endDate) {
+      return reply.status(400).send({ error: 'Start- und End-Datum sind erforderlich' });
+    }
+    if (endDate < startDate) {
+      return reply.status(400).send({ error: 'End-Datum muss nach dem Start-Datum liegen' });
+    }
+
+    db.prepare('UPDATE meal_plans SET start_date = ?, end_date = ? WHERE id = ?').run(startDate, endDate, id);
+    broadcastToHousehold(request.householdId, 'mealplan:updated', {}, request.user.id);
+
+    return { message: 'Plan aktualisiert', start_date: startDate, end_date: endDate };
+  });
+
+  // ─────────────────────────────────────────────
   // DELETE /:planId/entry/:entryId – Einzeleintrag
   // ─────────────────────────────────────────────
   fastify.delete('/:planId/entry/:entryId', {

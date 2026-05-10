@@ -400,6 +400,26 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     currentPlan.value = null;
   }
 
+  /** Plan bearbeiten (Start-/End-Datum) */
+  async function updatePlan(planId, { startDate, endDate }) {
+    const data = await api.put(`/mealplan/${planId}`, { startDate, endDate });
+    if (currentPlan.value && currentPlan.value.id === planId) {
+      currentPlan.value.start_date = startDate;
+      currentPlan.value.end_date = endDate;
+    }
+    const weekEntry = availableWeeks.value.find(w => w.id === planId);
+    if (weekEntry) {
+      weekEntry.start_date = startDate;
+      weekEntry.end_date = endDate;
+    }
+    const historyEntry = planHistory.value.find(p => p.id === planId);
+    if (historyEntry) {
+      historyEntry.start_date = startDate;
+      historyEntry.end_date = endDate;
+    }
+    return data;
+  }
+
   /** Wochenplan fixieren/freigeben */
   async function toggleLock(planId) {
     const data = await api.post(`/mealplan/${planId}/lock`);
@@ -410,6 +430,11 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     if (weekEntry) weekEntry.is_locked = data.is_locked;
     const historyEntry = planHistory.value.find(p => p.id === planId);
     if (historyEntry) historyEntry.is_locked = data.is_locked;
+    // Auch in calendarData aktualisieren (falls der Plan gerade im Kalender sichtbar ist)
+    if (calendarData.value?.plans) {
+      const calPlan = calendarData.value.plans.find(p => p.id === planId);
+      if (calPlan) calPlan.is_locked = data.is_locked;
+    }
     return data;
   }
 
@@ -477,7 +502,7 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     generatePlan, pollReasoning, fetchCurrentPlan, fetchPlanById, fetchPlans, fetchHistory, fetchAvailableWeeks, fetchLastWeekRecipes, fetchPastWeekRecipes,
     fetchWeekEntries, fetchMonthEntries, setCalendarMonth, setSelectedDateRange, clearSelectedDateRange,
     fetchSuggestions, markCooked, updateServings, swapRecipe, addEntry, addRecipeToPlan, moveEntry, removeEntry, deletePlan,
-    toggleLock, duplicatePlan,
+    toggleLock, duplicatePlan, updatePlan,
   };
 }, {
   persist: {
