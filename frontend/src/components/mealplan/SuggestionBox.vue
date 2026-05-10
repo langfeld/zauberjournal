@@ -261,8 +261,19 @@ const emit = defineEmits([
 
 const router = useRouter();
 
-// Standard: aufgeklappt. Nutzer kann manuell ein-/ausklappen.
+// Eingeklappt-Zustand aus localStorage laden
+const COLLAPSED_KEY = 'suggestion-box-collapsed';
 const collapsed = ref(false);
+try {
+  collapsed.value = localStorage.getItem(COLLAPSED_KEY) === 'true';
+} catch { /* silent */ }
+
+// Bei Änderung persistieren
+watch(collapsed, (val) => {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, String(val));
+  } catch { /* silent */ }
+});
 
 const activeTab = ref('lastWeek');
 

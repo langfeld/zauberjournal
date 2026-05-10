@@ -116,7 +116,6 @@
       @recipe-drag-start="onRecipeDragStart"
       @recipe-drag-end="onRecipeDragEnd"
     />
-  </div>
 
   <!-- Floating Action Button für Generierung -->
   <Transition name="fab">
@@ -257,6 +256,7 @@
     @close="showSlotSelect = false; pendingDropRecipe = null;"
     @select="onSlotSelected"
   />
+  </div>
 </template>
 
 <script setup>
