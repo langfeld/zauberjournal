@@ -312,6 +312,7 @@ const swapEntry = ref(null);
 const swapDateStr = ref(null);
 const swapSearch = ref('');
 const swapSuggestions = ref([]);
+const reopenPlanAfterSwap = ref(false);
 
 // Servings Popup
 const servingsPopupEntry = ref(null);
@@ -412,6 +413,14 @@ watch([calendarYear, calendarMonth], () => {
 watch(() => store.selectedDateRange, (range) => {
   if (!range || range.endDate) {
     hoveredEndDate.value = null;
+  }
+});
+
+// Wenn Swap-Dialog geschlossen wird und Plan-Modal sollte wieder geöffnet werden
+watch(showSwapModal, (isOpen) => {
+  if (!isOpen && reopenPlanAfterSwap.value && selectedPlan.value) {
+    reopenPlanAfterSwap.value = false;
+    showPlanModal.value = true;
   }
 });
 
@@ -518,6 +527,13 @@ async function openSwapDialog(entry) {
   swapEntry.value = entry;
   swapDateStr.value = entry?.plan_date || null;
   swapSearch.value = '';
+
+  // Inception vermeiden: Plan-Modal schließen wenn offen
+  if (showPlanModal.value) {
+    showPlanModal.value = false;
+    reopenPlanAfterSwap.value = true;
+  }
+
   showSwapModal.value = true;
 
   const dayIdx = entry?.plan_date
@@ -535,6 +551,13 @@ async function onAddEntryToPlan(dateStr) {
   swapEntry.value = null;
   swapDateStr.value = dateStr;
   swapSearch.value = '';
+
+  // Inception vermeiden: Plan-Modal schließen wenn offen
+  if (showPlanModal.value) {
+    showPlanModal.value = false;
+    reopenPlanAfterSwap.value = true;
+  }
+
   showSwapModal.value = true;
 
   const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
@@ -571,6 +594,13 @@ async function doSwap(newRecipeId) {
     }
     showSwapModal.value = false;
     swapDateStr.value = null;
+
+    // Plan-Modal wieder öffnen wenn es vorher offen war
+    if (reopenPlanAfterSwap.value && selectedPlan.value) {
+      reopenPlanAfterSwap.value = false;
+      showPlanModal.value = true;
+    }
+
     store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
   } catch (err) {
     showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Tauschen', variant: 'warning' });
