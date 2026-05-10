@@ -128,6 +128,8 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'generate']);
 
+const LS_KEY = 'zauberjournal-generate-settings';
+
 const form = ref({
   startDate: '',
   endDate: '',
@@ -136,6 +138,36 @@ const form = ref({
   source: 'all',
   enableAiReasoning: false,
 });
+
+/** Gespeicherte Einstellungen aus localStorage laden */
+function loadSavedSettings() {
+  try {
+    const saved = localStorage.getItem(LS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.personCount) form.value.personCount = parsed.personCount;
+      if (parsed.source) form.value.source = parsed.source;
+      if (typeof parsed.enableAiReasoning === 'boolean') form.value.enableAiReasoning = parsed.enableAiReasoning;
+      // Kategorien nur übernehmen, wenn sie in den aktuellen Kategorien existieren
+      if (Array.isArray(parsed.categoryIds) && parsed.categoryIds.length > 0) {
+        const validIds = parsed.categoryIds.filter(id => props.mealCategories.some(c => c.id === id));
+        if (validIds.length > 0) form.value.categoryIds = validIds;
+      }
+    }
+  } catch { /* ignore parse errors */ }
+}
+
+/** Aktuelle Einstellungen in localStorage speichern */
+function saveSettings() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      categoryIds: form.value.categoryIds,
+      personCount: form.value.personCount,
+      source: form.value.source,
+      enableAiReasoning: form.value.enableAiReasoning,
+    }));
+  } catch { /* ignore quota errors */ }
+}
 
 const datePresets = [
   { label: 'Diese Woche', days: 0 },
@@ -163,6 +195,9 @@ watch(() => props.isOpen, (open) => {
       sunday.setDate(monday.getDate() + 6);
       form.value.endDate = formatDateLocal(sunday);
     }
+
+    // Gespeicherte Einstellungen laden (falls vorhanden)
+    loadSavedSettings();
 
     // Default: alle Kategorien außer die letzte (Snack-Equivalent)
     if (props.mealCategories.length > 0 && form.value.categoryIds.length === 0) {
@@ -194,6 +229,7 @@ function applyPreset(preset) {
 }
 
 function generate() {
+  saveSettings();
   const collectionIds = form.value.source === 'collections' ? [] : undefined;
   emit('generate', {
     startDate: form.value.startDate,
