@@ -29,12 +29,6 @@
               <BookOpen class="w-4 h-4" />
               <span class="hidden sm:inline">Rezepte</span>
             </button>
-            <button @click="showLoadDialog = true"
-              class="flex items-center gap-1.5 hover:bg-stone-100 dark:hover:bg-stone-800 px-3 py-2 rounded-xl text-stone-600 dark:text-stone-400 text-sm transition-colors"
-              title="Gespeicherten Plan laden">
-              <FolderSearch class="w-4 h-4" />
-              <span class="hidden sm:inline">Laden</span>
-            </button>
           </div>
         </div>
 
@@ -98,6 +92,7 @@
           @entry-click="onEntryClick"
           @dragover-day="onDragOverDay"
           @drop-day="onDropDay"
+          @hover-date="onHoverDate"
         />
 
         <!-- Laden -->
@@ -123,8 +118,8 @@
       <button @click="openGenerateDialog"
         class="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 shadow-lg hover:shadow-xl px-5 py-3 rounded-full font-medium text-white text-sm transition-all">
         <Sparkles class="w-4 h-4" />
-        <span>Plan für {{ selectedRangeDayCount }} Tage generieren</span>
-        <button @click.stop="store.clearSelectedDateRange()" class="ml-1 hover:bg-primary-500 p-1 rounded-full transition-colors">
+        <span>{{ generateButtonText }}</span>
+        <button @click.stop="clearRangeSelection" class="ml-1 hover:bg-primary-500 p-1 rounded-full transition-colors">
           <X class="w-3.5 h-3.5" />
         </button>
       </button>
@@ -169,15 +164,6 @@
     :meal-categories="mealTypes"
     @close="showGenerateDialog = false"
     @generate="doGenerate"
-  />
-
-  <!-- Load Plan Dialog -->
-  <LoadPlanDialog
-    v-if="showLoadDialog"
-    @close="showLoadDialog = false"
-    @navigate-to-week="onNavigateToWeek"
-    @plan-copied="onPlanCopied"
-    @plan-deleted="onPlanDeleted"
   />
 
   <!-- Swap Modal (wiederverwendet aus altem Code) -->
@@ -264,7 +250,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useWindowSize } from '@vueuse/core';
 import {
-  BookOpen, FolderSearch, Sparkles, X, Minus, Plus,
+  BookOpen, Sparkles, X, Minus, Plus,
   Lock, Unlock, Trash2, Clock, Users, Flame, Check,
   RefreshCw, ShoppingCart, Copy,
 } from 'lucide-vue-next';
@@ -281,7 +267,7 @@ import PlanDetailModal from '@/components/mealplan/PlanDetailModal.vue';
 import GenerateDialog from '@/components/mealplan/GenerateDialog.vue';
 import SuggestionBox from '@/components/mealplan/SuggestionBox.vue';
 import RecipeBrowserPanel from '@/components/mealplan/RecipeBrowserPanel.vue';
-import LoadPlanDialog from '@/components/mealplan/LoadPlanDialog.vue';
+
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import SlotSelectModal from '@/components/mealplan/SlotSelectModal.vue';
 
@@ -296,12 +282,14 @@ const blocksStore = useRecipeBlocksStore();
 const calendarYear = ref(new Date().getFullYear());
 const calendarMonth = ref(new Date().getMonth());
 const showRecipeBrowser = ref(false);
-const showLoadDialog = ref(false);
 const showGenerateDialog = ref(false);
 const showDayDrawer = ref(false);
 const showPlanModal = ref(false);
 const selectedDay = ref(null);
 const selectedPlan = ref(null);
+
+// Hover-Vorschau für Zeitraum-Selektion
+const hoveredEndDate = ref(null);
 
 // Swap Modal
 const showSwapModal = ref(false);
@@ -379,10 +367,23 @@ const selectedPlanEntries = computed(() => {
 const selectedRangeDayCount = computed(() => {
   if (!store.selectedDateRange) return 0;
   const start = new Date(store.selectedDateRange.startDate + 'T12:00:00');
-  const end = store.selectedDateRange.endDate
-    ? new Date(store.selectedDateRange.endDate + 'T12:00:00')
-    : start;
+  // Während der Selektion: nutze hoveredEndDate als Vorschau, sonst endDate oder start
+  const effectiveEnd = store.selectedDateRange.endDate
+    ? store.selectedDateRange.endDate
+    : hoveredEndDate.value || store.selectedDateRange.startDate;
+  const end = new Date(effectiveEnd + 'T12:00:00');
   return Math.round((end - start) / 86400000) + 1;
+});
+
+const generateButtonText = computed(() => {
+  if (!store.selectedDateRange) return '';
+  const count = selectedRangeDayCount.value;
+  const dayLabel = count === 1 ? 'Tag' : 'Tage';
+  // Während der Selektion: zeige auch das Enddatum als Vorschau
+  if (!store.selectedDateRange.endDate && hoveredEndDate.value) {
+    return `Plan für ${count} ${dayLabel} generieren`;
+  }
+  return `Plan für ${count} ${dayLabel} generieren`;
 });
 
 const mealTypes = computed(() => recipesStore.mealTimeCategories || []);
@@ -390,6 +391,12 @@ const mealTypes = computed(() => recipesStore.mealTimeCategories || []);
 // ── Watchers ──
 watch([calendarYear, calendarMonth], () => {
   store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
+});
+
+watch(() => store.selectedDateRange, (range) => {
+  if (!range || range.endDate) {
+    hoveredEndDate.value = null;
+  }
 });
 
 watch(swapSearch, async (search) => {
@@ -430,6 +437,7 @@ function handleEmptyDayClick(day) {
   // Abbrechen
   if (day._cancel || !day.dateStr) {
     store.clearSelectedDateRange();
+    hoveredEndDate.value = null;
     return;
   }
 
@@ -445,7 +453,21 @@ function handleEmptyDayClick(day) {
       start <= end ? start : end,
       start <= end ? end : start
     );
+    hoveredEndDate.value = null;
   }
+}
+
+// ── Hover Handler für Zeitraum-Vorschau ──
+function onHoverDate(dateStr) {
+  if (!store.selectedDateRange?.endDate) {
+    hoveredEndDate.value = dateStr;
+  }
+}
+
+// ── Selektion zurücksetzen (auch Hover-Vorschau) ──
+function clearRangeSelection() {
+  store.clearSelectedDateRange();
+  hoveredEndDate.value = null;
 }
 
 // ── Plan Click Handler ──
@@ -613,23 +635,6 @@ async function confirmDeletePlan(plan) {
       }
     },
   });
-}
-
-// ── Load Plan Dialog Events ──
-function onNavigateToWeek(weekStart) {
-  const d = new Date(weekStart + 'T12:00:00');
-  calendarYear.value = d.getFullYear();
-  calendarMonth.value = d.getMonth();
-  showLoadDialog.value = false;
-}
-
-function onPlanCopied() {
-  store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
-  showLoadDialog.value = false;
-}
-
-function onPlanDeleted() {
-  store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
 }
 
 // ── Entry Click (Rezept in Kalender-Zelle) ──

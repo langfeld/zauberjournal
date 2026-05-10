@@ -52,7 +52,7 @@
     <div class="space-y-1">
       <div v-for="(week, weekIdx) in calendarWeeks" :key="weekIdx">
         <!-- Tageszellen -->
-        <div class="gap-1 grid grid-cols-7" @mouseleave="hoverDate = null">
+        <div class="gap-1 grid grid-cols-7" @mouseleave="onHoverLeave">
           <CalendarDayCell
             v-for="day in week"
             :key="day.dateStr"
@@ -100,6 +100,7 @@ const emit = defineEmits([
   'entry-click',
   'dragover-day',
   'drop-day',
+  'hover-date',
 ]);
 
 // Hover-Zustand für Zeitraum-Selektion
@@ -205,7 +206,14 @@ function onEntryClick(day, entry) {
 function onDayHover(dateStr) {
   if (isSelectingRange.value) {
     hoverDate.value = dateStr;
+    emit('hover-date', dateStr);
   }
+}
+
+/** Mouseleave auf Wochen-Zeile → Hover zurücksetzen */
+function onHoverLeave() {
+  hoverDate.value = null;
+  emit('hover-date', null);
 }
 
 /** Selektion abbrechen */
