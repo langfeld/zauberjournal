@@ -731,6 +731,7 @@ function onEntryClick({ day, entry }) {
 // ── Plan-Click aus DayDetailDrawer ──
 function onDayDrawerPlanClick(plan) {
   selectedPlan.value = plan;
+  showDayDrawer.value = false;
   showPlanModal.value = true;
 }
 
