@@ -38,7 +38,7 @@
               v-for="plan in dayPlans"
               :key="plan.id"
               @click="$emit('plan-click', plan)"
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-transform hover:scale-105"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-transform hover:scale-105"
               :style="{ backgroundColor: plan.color + '20', color: plan.color, border: '1px solid ' + plan.color + '40' }"
             >
               <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: plan.color }" />
@@ -54,7 +54,7 @@
             <p class="text-stone-500 dark:text-stone-400 text-sm">Keine Mahlzeiten für diesen Tag.</p>
             <button
               @click="openSwap(null)"
-              class="mt-3 bg-primary-600 hover:bg-primary-700 px-4 py-2 rounded-lg font-medium text-white text-sm transition-colors">
+              class="mt-3 bg-primary-600 hover:bg-primary-700 px-4 py-2 rounded-lg font-medium text-white text-sm cursor-pointer transition-colors">
               Rezept hinzufügen
             </button>
           </div>
@@ -91,7 +91,7 @@
                   <span v-if="entry.total_time" class="flex items-center gap-1">
                     <Clock class="w-3 h-3" /> {{ entry.total_time }} Min.
                   </span>
-                  <button @click="openServings(entry)" class="flex items-center gap-1 hover:text-stone-700 dark:hover:text-stone-200">
+                  <button @click="openServings(entry)" class="flex items-center gap-1 cursor-pointer hover:text-stone-700 dark:hover:text-stone-200">
                     <Users class="w-3 h-3" /> {{ entry.servings }} Port.
                   </button>
                   <span v-if="entry.calories" class="flex items-center gap-1 text-orange-500 dark:text-orange-400">
@@ -105,7 +105,7 @@
             <div class="flex items-center gap-1 px-3 pb-3">
               <button @click="toggleCooked(entry)"
                 :class="[
-                  'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors',
+                  'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors',
                   entry.is_cooked
                     ? 'bg-accent-100 dark:bg-accent-900/30 text-accent-700 dark:text-accent-300'
                     : 'bg-stone-100 dark:bg-stone-700 hover:bg-stone-200 dark:hover:bg-stone-600 text-stone-600 dark:text-stone-300'
@@ -114,12 +114,12 @@
                 {{ entry.is_cooked ? 'Gekocht' : 'Als gekocht markieren' }}
               </button>
               <button @click="openSwap(entry)"
-                class="flex items-center justify-center bg-stone-100 dark:bg-stone-700 hover:bg-stone-200 dark:hover:bg-stone-600 p-2 rounded-lg text-stone-600 dark:text-stone-300 transition-colors"
+                class="flex items-center justify-center bg-stone-100 dark:bg-stone-700 hover:bg-stone-200 dark:hover:bg-stone-600 p-2 rounded-lg text-stone-600 dark:text-stone-300 cursor-pointer transition-colors"
                 title="Rezept tauschen">
                 <RefreshCw class="w-3.5 h-3.5" />
               </button>
               <button @click="remove(entry)"
-                class="flex items-center justify-center bg-red-50 dark:bg-red-950 hover:bg-red-100 dark:hover:bg-red-900 p-2 rounded-lg text-red-500 transition-colors"
+                class="flex items-center justify-center bg-red-50 dark:bg-red-950 hover:bg-red-100 dark:hover:bg-red-900 p-2 rounded-lg text-red-500 cursor-pointer transition-colors"
                 title="Entfernen">
                 <Trash2 class="w-3.5 h-3.5" />
               </button>

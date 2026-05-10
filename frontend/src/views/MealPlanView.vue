@@ -153,6 +153,7 @@
     @toggle-lock="toggleLockPlan"
     @duplicate="duplicatePlan"
     @shopping-list="createShoppingList"
+    @remove="removeEntry"
     @delete="confirmDeletePlan"
   />
 
@@ -210,11 +211,11 @@
         <div class="bg-white dark:bg-stone-900 shadow-xl border border-stone-200 dark:border-stone-700 rounded-xl p-3">
           <p class="font-medium text-stone-700 dark:text-stone-200 text-sm mb-2">Portionen</p>
           <div class="flex items-center gap-2">
-            <button @click="updateServings(-1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg">
+            <button @click="updateServings(-1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg cursor-pointer">
               <Minus class="w-4 h-4" />
             </button>
             <span class="font-semibold w-8 text-center">{{ servingsPopupEntry.servings }}</span>
-            <button @click="updateServings(1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg">
+            <button @click="updateServings(1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg cursor-pointer">
               <Plus class="w-4 h-4" />
             </button>
           </div>

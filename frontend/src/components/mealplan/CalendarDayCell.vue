@@ -143,6 +143,11 @@ const cellClasses = computed(() => {
     classes.push('opacity-50');
   }
 
+  // Cursor: Pointer für klickbare Zelle (außer bei Range-Selektion)
+  if (!props.isInHoverRange) {
+    classes.push('cursor-pointer');
+  }
+
   return classes;
 });
 

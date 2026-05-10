@@ -28,7 +28,7 @@
             </p>
           </div>
 
-          <button @click="close" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg transition-colors">
+          <button @click="close" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg cursor-pointer transition-colors">
             <X class="w-5 h-5 text-stone-500" />
           </button>
         </div>
@@ -63,22 +63,30 @@
                     <span v-if="entry.is_cooked" class="ml-2 text-accent-600 dark:text-accent-400">✓ Gekocht</span>
                   </p>
                 </div>
-                <button
-                  @click.stop="$emit('swap', entry)"
-                  class="opacity-0 group-hover:opacity-100 hover:bg-stone-200 dark:hover:bg-stone-700 p-1.5 rounded-lg transition-all"
-                  title="Tauschen">
-                  <RefreshCw class="w-3.5 h-3.5 text-stone-500" />
-                </button>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button
+                    @click.stop="$emit('swap', entry)"
+                    class="hover:bg-stone-200 dark:hover:bg-stone-700 p-1.5 rounded-lg cursor-pointer transition-colors"
+                    title="Tauschen">
+                    <RefreshCw class="w-3.5 h-3.5 text-stone-500" />
+                  </button>
+                  <button
+                    @click.stop="$emit('remove', entry)"
+                    class="hover:bg-red-100 dark:hover:bg-red-900 p-1.5 rounded-lg cursor-pointer transition-colors"
+                    title="Entfernen">
+                    <Trash2 class="w-3.5 h-3.5 text-red-400" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Footer Actions -->
-        <div class="shrink-0 flex flex-wrap gap-2 px-6 py-4 border-t border-stone-200 dark:border-stone-700">
+        <div class="shrink-0 grid grid-cols-2 sm:flex sm:flex-row gap-2 px-6 py-4 border-t border-stone-200 dark:border-stone-700">
           <button @click="$emit('toggle-lock', plan)"
             :class="[
-              'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+              'flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors',
               plan?.is_locked
                 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900'
                 : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700'
@@ -89,19 +97,17 @@
           </button>
 
           <button @click="$emit('duplicate', plan)"
-            class="flex items-center gap-1.5 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 px-4 py-2 rounded-lg font-medium text-stone-700 dark:text-stone-300 text-sm transition-colors">
+            class="flex items-center justify-center gap-1.5 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 px-4 py-2 rounded-lg font-medium text-stone-700 dark:text-stone-300 text-sm cursor-pointer transition-colors">
             <Copy class="w-4 h-4" /> Duplizieren
           </button>
 
           <button @click="$emit('shopping-list', plan)"
-            class="flex items-center gap-1.5 bg-primary-50 dark:bg-primary-900/30 hover:bg-primary-100 dark:hover:bg-primary-900 px-4 py-2 rounded-lg font-medium text-primary-700 dark:text-primary-300 text-sm transition-colors">
+            class="flex items-center justify-center gap-1.5 bg-primary-50 dark:bg-primary-900/30 hover:bg-primary-100 dark:hover:bg-primary-900 px-4 py-2 rounded-lg font-medium text-primary-700 dark:text-primary-300 text-sm cursor-pointer transition-colors">
             <ShoppingCart class="w-4 h-4" /> Einkaufsliste
           </button>
 
-          <div class="flex-1"></div>
-
           <button @click="$emit('delete', plan)"
-            class="flex items-center gap-1.5 bg-red-50 dark:bg-red-950 hover:bg-red-100 dark:hover:bg-red-900 px-4 py-2 rounded-lg font-medium text-red-600 dark:text-red-400 text-sm transition-colors">
+            class="flex items-center justify-center gap-1.5 bg-red-50 dark:bg-red-950 hover:bg-red-100 dark:hover:bg-red-900 px-4 py-2 rounded-lg font-medium text-red-600 dark:text-red-400 text-sm cursor-pointer transition-colors">
             <Trash2 class="w-4 h-4" /> Löschen
           </button>
         </div>
@@ -120,7 +126,7 @@ const props = defineProps({
   entries: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['close', 'entry-click', 'swap', 'toggle-lock', 'duplicate', 'shopping-list', 'delete']);
+const emit = defineEmits(['close', 'entry-click', 'swap', 'remove', 'toggle-lock', 'duplicate', 'shopping-list', 'delete']);
 
 const planLabel = computed(() => {
   if (!props.plan) return '';
