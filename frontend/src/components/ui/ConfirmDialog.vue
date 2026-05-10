@@ -26,6 +26,7 @@
           <!-- Buttons -->
           <div class="flex justify-end gap-3 mt-6">
             <button
+              v-if="showCancel"
               @click="cancel"
               class="cancel-btn"
             >
@@ -59,6 +60,7 @@ const props = defineProps({
   cancelText: { type: String, default: 'Abbrechen' },
   variant: { type: String, default: 'danger', validator: v => ['danger', 'warning', 'info', 'success'].includes(v) },
   loading: { type: Boolean, default: false },
+  showCancel: { type: Boolean, default: true },
 });
 
 const emit = defineEmits(['update:modelValue', 'confirm', 'cancel']);

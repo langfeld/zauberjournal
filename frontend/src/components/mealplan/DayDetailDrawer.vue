@@ -3,8 +3,7 @@
   DayDetailDrawer – Mahlzeiten eines Tages im Detail
   ============================================
   Slide-in Drawer (Desktop) / Bottom-Sheet (Mobile) mit allen
-  Mahlzeiten des ausgewählten Tags. Erlaubt Tausch, Entfernen,
-  Gekocht-Markierung und Portionen-Anpassung.
+  Mahlzeiten des ausgewählten Tags. Zeigt zugehörige Pläne an.
 -->
 <template>
   <Transition name="drawer">
@@ -18,18 +17,34 @@
         :class="isMobile ? 'bottom-0 inset-x-0 rounded-t-2xl max-h-[85vh]' : 'right-0 top-0 bottom-0 w-full max-w-lg rounded-l-2xl'"
       >
         <!-- Header -->
-        <div class="flex items-center gap-3 shrink-0 px-5 py-4 border-b border-stone-200 dark:border-stone-700">
-          <div class="flex-1 min-w-0">
-            <h3 class="font-bold text-stone-800 dark:text-stone-100 text-lg">
-              {{ dateLabel }}
-            </h3>
-            <p class="text-stone-500 dark:text-stone-400 text-sm">
-              {{ entries.length }} Mahlzeit{{ entries.length !== 1 ? 'en' : '' }}
-            </p>
+        <div class="shrink-0 px-5 py-4 border-b border-stone-200 dark:border-stone-700">
+          <div class="flex items-center gap-3">
+            <div class="flex-1 min-w-0">
+              <h3 class="font-bold text-stone-800 dark:text-stone-100 text-lg">
+                {{ dateLabel }}
+              </h3>
+              <p class="text-stone-500 dark:text-stone-400 text-sm">
+                {{ entries.length }} Mahlzeit{{ entries.length !== 1 ? 'en' : '' }}
+              </p>
+            </div>
+            <button @click="close" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg transition-colors">
+              <X class="w-5 h-5 text-stone-500" />
+            </button>
           </div>
-          <button @click="close" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg transition-colors">
-            <X class="w-5 h-5 text-stone-500" />
-          </button>
+
+          <!-- Zugehörige Pläne -->
+          <div v-if="dayPlans.length" class="flex flex-wrap gap-2 mt-3">
+            <button
+              v-for="plan in dayPlans"
+              :key="plan.id"
+              @click="$emit('plan-click', plan)"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-transform hover:scale-105"
+              :style="{ backgroundColor: plan.color + '20', color: plan.color, border: '1px solid ' + plan.color + '40' }"
+            >
+              <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: plan.color }" />
+              {{ formatShortDate(plan.start_date || plan.week_start) }}–{{ formatShortDate(plan.end_date || plan.week_start) }}
+            </button>
+          </div>
         </div>
 
         <!-- Content -->
@@ -124,15 +139,25 @@ const props = defineProps({
   isOpen: Boolean,
   dateStr: { type: String, default: '' },
   entries: { type: Array, default: () => [] },
+  plans: { type: Array, default: () => [] },
   isMobile: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['close', 'entry-click', 'swap', 'remove', 'toggle-cooked', 'update-servings']);
+const emit = defineEmits(['close', 'entry-click', 'swap', 'remove', 'toggle-cooked', 'update-servings', 'plan-click']);
 
 const dateLabel = computed(() => {
   if (!props.dateStr) return '';
   const d = new Date(props.dateStr + 'T12:00:00');
   return d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+});
+
+/** Pläne, die diesen Tag abdecken */
+const dayPlans = computed(() => {
+  return props.plans.filter(p => {
+    const start = p.start_date || p.week_start;
+    const end = p.end_date || addDays(start, 6);
+    return props.dateStr >= start && props.dateStr <= end;
+  });
 });
 
 function close() {
@@ -157,6 +182,18 @@ function toggleCooked(entry) {
 
 function remove(entry) {
   emit('remove', entry);
+}
+
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatShortDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
 }
 </script>
 

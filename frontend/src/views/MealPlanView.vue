@@ -137,6 +137,7 @@
     :is-open="showDayDrawer"
     :date-str="selectedDay?.dateStr || ''"
     :entries="selectedDayEntries"
+    :plans="selectedDayPlans"
     :is-mobile="isMobile"
     @close="showDayDrawer = false"
     @entry-click="goToRecipe"
@@ -144,6 +145,7 @@
     @remove="removeEntry"
     @toggle-cooked="toggleCooked"
     @update-servings="openServingsPopup"
+    @plan-click="onDayDrawerPlanClick"
   />
 
   <!-- Plan Detail Modal -->
@@ -235,6 +237,26 @@
       </div>
     </div>
   </Teleport>
+
+  <!-- Confirm Dialog -->
+  <ConfirmDialog
+    v-model="confirmDialog.show"
+    :title="confirmDialog.title"
+    :message="confirmDialog.message"
+    :variant="confirmDialog.variant"
+    :confirm-text="confirmDialog.confirmText"
+    :show-cancel="confirmDialog.showCancel"
+    @confirm="onConfirmDialog"
+  />
+
+  <!-- Slot Select Modal (nach Drag & Drop) -->
+  <SlotSelectModal
+    :is-open="showSlotSelect"
+    :date-str="slotSelectDate"
+    :slots="mealTypes"
+    @close="showSlotSelect = false; pendingDropRecipe = null;"
+    @select="onSlotSelected"
+  />
 </template>
 
 <script setup>
@@ -260,6 +282,8 @@ import GenerateDialog from '@/components/mealplan/GenerateDialog.vue';
 import SuggestionBox from '@/components/mealplan/SuggestionBox.vue';
 import RecipeBrowserPanel from '@/components/mealplan/RecipeBrowserPanel.vue';
 import LoadPlanDialog from '@/components/mealplan/LoadPlanDialog.vue';
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
+import SlotSelectModal from '@/components/mealplan/SlotSelectModal.vue';
 
 const router = useRouter();
 const store = useMealPlanStore();
@@ -292,8 +316,38 @@ const servingsPopupPos = ref({ x: 0, y: 0 });
 // Drag & Drop
 const dragData = ref(null);
 
+// Slot-Auswahl nach Drop
+const showSlotSelect = ref(false);
+const slotSelectDate = ref('');
+const pendingDropRecipe = ref(null);
+const pendingDropIsExistingPlan = ref(false);
+
 // Suggestions
 const suggestions = ref([]);
+
+// Confirm Dialog
+const confirmDialog = ref({
+  show: false,
+  title: '',
+  message: '',
+  variant: 'danger',
+  confirmText: 'Bestätigen',
+  showCancel: true,
+  onConfirm: null,
+});
+
+function showConfirm(opts) {
+  confirmDialog.value = { show: true, showCancel: true, ...opts };
+}
+
+function showAlert(opts) {
+  confirmDialog.value = { show: true, showCancel: false, variant: 'info', confirmText: 'OK', ...opts };
+}
+
+function onConfirmDialog() {
+  confirmDialog.value.show = false;
+  if (confirmDialog.value.onConfirm) confirmDialog.value.onConfirm();
+}
 
 // ── Computed ──
 const { width: windowWidth } = useWindowSize();
@@ -302,6 +356,15 @@ const isMobile = computed(() => windowWidth.value < 1024);
 const selectedDayEntries = computed(() => {
   if (!selectedDay.value?.dateStr) return [];
   return store.calendarData?.entries?.filter(e => e.plan_date === selectedDay.value.dateStr) || [];
+});
+
+const selectedDayPlans = computed(() => {
+  if (!selectedDay.value?.dateStr) return [];
+  return store.calendarData?.plans?.filter(p => {
+    const start = p.start_date || p.week_start;
+    const end = p.end_date || addDays(start, 6);
+    return selectedDay.value.dateStr >= start && selectedDay.value.dateStr <= end;
+  }) || [];
 });
 
 const selectedPlanEntries = computed(() => {
@@ -401,7 +464,7 @@ async function doGenerate(options) {
     showGenerateDialog.value = false;
     store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
   } catch (err) {
-    alert(err.message || 'Fehler beim Generieren');
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Generieren', variant: 'warning' });
   }
 }
 
@@ -449,19 +512,26 @@ async function doSwap(newRecipeId) {
     showSwapModal.value = false;
     store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
   } catch (err) {
-    alert(err.message || 'Fehler beim Tauschen');
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Tauschen', variant: 'warning' });
   }
 }
 
 // ── Remove ──
 async function removeEntry(entry) {
-  if (!confirm('Mahlzeit wirklich entfernen?')) return;
-  try {
-    await store.removeEntry(entry.meal_plan_id, entry.id);
-    store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
-  } catch (err) {
-    alert(err.message || 'Fehler beim Entfernen');
-  }
+  showConfirm({
+    title: 'Mahlzeit entfernen?',
+    message: 'Diese Mahlzeit wird aus dem Plan entfernt.',
+    variant: 'warning',
+    confirmText: 'Entfernen',
+    onConfirm: async () => {
+      try {
+        await store.removeEntry(entry.meal_plan_id, entry.id);
+        store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
+      } catch (err) {
+        showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Entfernen', variant: 'warning' });
+      }
+    },
+  });
 }
 
 // ── Cooked ──
@@ -502,7 +572,7 @@ async function toggleLockPlan(plan) {
   try {
     await store.toggleLock(plan.id);
   } catch (err) {
-    alert(err.message || 'Fehler beim Sperren');
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Sperren', variant: 'warning' });
   }
 }
 
@@ -515,7 +585,7 @@ async function duplicatePlan(plan) {
     store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
     showPlanModal.value = false;
   } catch (err) {
-    alert(err.message || 'Fehler beim Duplizieren');
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Duplizieren', variant: 'warning' });
   }
 }
 
@@ -526,14 +596,21 @@ function createShoppingList(plan) {
 
 // ── Delete Plan ──
 async function confirmDeletePlan(plan) {
-  if (!confirm('Plan wirklich löschen?')) return;
-  try {
-    await store.deletePlan(plan.id);
-    showPlanModal.value = false;
-    store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
-  } catch (err) {
-    alert(err.message || 'Fehler beim Löschen');
-  }
+  showConfirm({
+    title: 'Plan löschen?',
+    message: 'Dieser Plan und alle seine Mahlzeiten werden unwiderruflich gelöscht.',
+    variant: 'danger',
+    confirmText: 'Löschen',
+    onConfirm: async () => {
+      try {
+        await store.deletePlan(plan.id);
+        showPlanModal.value = false;
+        store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
+      } catch (err) {
+        showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Löschen', variant: 'warning' });
+      }
+    },
+  });
 }
 
 // ── Load Plan Dialog Events ──
@@ -560,6 +637,12 @@ function onEntryClick({ day, entry }) {
   showDayDrawer.value = true;
 }
 
+// ── Plan-Click aus DayDetailDrawer ──
+function onDayDrawerPlanClick(plan) {
+  selectedPlan.value = plan;
+  showPlanModal.value = true;
+}
+
 // ── Drag & Drop ──
 function onDragOverDay(event, dateStr) {
   event.preventDefault();
@@ -571,35 +654,48 @@ async function onDropDay(event, dateStr) {
   if (!data) return;
   try {
     const parsed = JSON.parse(data);
-    const dayPlans = store.calendarData?.plans?.filter(p => {
-      const start = p.start_date || p.week_start;
-      const end = p.end_date || addDays(start, 6);
-      return dateStr >= start && dateStr <= end;
-    });
-    const hasPlan = dayPlans.length > 0;
-    const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
 
     if (parsed.recipeId) {
-      // Rezept aus Browser oder SuggestionBox
-      if (hasPlan) {
-        // In bestehenden Plan einfügen (week_start des Plans verwenden!)
-        const plan = dayPlans[0];
-        const planWeekStart = plan.start_date || plan.week_start;
-        await store.addRecipeToPlan(parsed.recipeId, dayIdx, mealTypes.value[0]?.id, planWeekStart, 4, dateStr);
-      } else {
-        // 1-Tages-Plan erstellen (startDate = endDate = dateStr)
-        await store.addRecipeToPlan(parsed.recipeId, dayIdx, mealTypes.value[0]?.id, dateStr, 4, dateStr, dateStr, dateStr);
-      }
-      store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
+      // Rezept aus Browser oder SuggestionBox → Slot-Auswahl öffnen
+      const dayPlans = store.calendarData?.plans?.filter(p => {
+        const start = p.start_date || p.week_start;
+        const end = p.end_date || addDays(start, 6);
+        return dateStr >= start && dateStr <= end;
+      });
+      pendingDropRecipe.value = { recipeId: parsed.recipeId, dateStr, hasPlan: dayPlans.length > 0, plan: dayPlans[0] };
+      slotSelectDate.value = dateStr;
+      showSlotSelect.value = true;
     } else if (parsed.entry) {
       // Entry verschieben
       const entry = parsed.entry;
+      const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
       await store.moveEntry(entry.meal_plan_id, entry.id, dayIdx, entry.category_id, dateStr);
       store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
     }
   } catch {
     // silent
   }
+}
+
+async function onSlotSelected(slot) {
+  showSlotSelect.value = false;
+  if (!pendingDropRecipe.value) return;
+  const { recipeId, dateStr, hasPlan, plan } = pendingDropRecipe.value;
+  const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
+  try {
+    if (hasPlan && plan) {
+      // In bestehenden Plan einfügen
+      const planWeekStart = plan.start_date || plan.week_start;
+      await store.addRecipeToPlan(recipeId, dayIdx, slot.id, planWeekStart, 4, dateStr);
+    } else {
+      // 1-Tages-Plan erstellen
+      await store.addRecipeToPlan(recipeId, dayIdx, slot.id, dateStr, 4, dateStr, dateStr, dateStr);
+    }
+    store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
+  } catch (err) {
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Hinzufügen', variant: 'warning' });
+  }
+  pendingDropRecipe.value = null;
 }
 
 function onRecipeDragStart(recipe) {
