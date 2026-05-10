@@ -379,7 +379,9 @@ const selectedPlanEntries = computed(() => {
 const selectedRangeDayCount = computed(() => {
   if (!store.selectedDateRange) return 0;
   const start = new Date(store.selectedDateRange.startDate + 'T12:00:00');
-  const end = new Date(store.selectedDateRange.endDate + 'T12:00:00');
+  const end = store.selectedDateRange.endDate
+    ? new Date(store.selectedDateRange.endDate + 'T12:00:00')
+    : start;
   return Math.round((end - start) / 86400000) + 1;
 });
 
