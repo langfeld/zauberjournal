@@ -156,7 +156,8 @@ export const usePantryStore = defineStore('pantry', () => {
       // keine Rezepte vorhanden sind und andere Wochen verfügbar sind,
       // automatisch zur nächsten verfügbaren Woche springen
       if (!weekStart && data.recipes.length === 0 && data.availableWeeks?.length > 0) {
-        const today = new Date().toISOString().slice(0, 10);
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         const sorted = [...data.availableWeeks].sort((a, b) => a.week_start.localeCompare(b.week_start));
         // Bevorzuge nächste zukünftige Woche, sonst letzte vergangene
         const futureWeek = sorted.find(w => w.week_start >= today);

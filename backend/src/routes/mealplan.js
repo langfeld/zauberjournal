@@ -322,7 +322,7 @@ export default async function mealplanRoutes(fastify) {
     const hhWhere = householdWhereClause(userId, householdId, 'mp');
 
     const plans = db.prepare(`
-      SELECT mp.id, mp.week_start, mp.start_date, mp.end_date, mp.is_locked, mp.created_at,
+      SELECT mp.id, mp.week_start, mp.start_date, mp.end_date, mp.is_locked, mp.created_at, mp.color,
              COUNT(DISTINCT mpe.id) as meal_count,
              MAX(CASE WHEN sl.id IS NOT NULL THEN 1 ELSE 0 END) as has_shopping_list
       FROM meal_plans mp
@@ -365,7 +365,7 @@ export default async function mealplanRoutes(fastify) {
   }, async (request) => {
     const hhWhere = householdWhereClause(request.user.id, request.householdId, 'mp');
     const plans = db.prepare(`
-      SELECT mp.id, mp.week_start, mp.start_date, mp.end_date, mp.is_locked, COUNT(mpe.id) as meal_count
+      SELECT mp.id, mp.week_start, mp.start_date, mp.end_date, mp.is_locked, mp.color, COUNT(mpe.id) as meal_count
       FROM meal_plans mp
       LEFT JOIN meal_plan_entries mpe ON mp.id = mpe.meal_plan_id
       WHERE (${hhWhere.clause})
@@ -410,6 +410,7 @@ export default async function mealplanRoutes(fastify) {
       start_date: p.start_date || p.week_start,
       end_date: p.end_date || addDays(p.week_start, 6),
       is_locked: !!p.is_locked,
+      color: p.color,
       meal_count: p.meal_count,
       has_shopping_list: planIdsWithList.has(p.id),
       recipes: recipesByPlan[p.id] || [],
@@ -617,11 +618,13 @@ export default async function mealplanRoutes(fastify) {
           week_start: { type: 'string', format: 'date' },
           plan_date: { type: 'string', format: 'date', description: 'Konkretes Datum (bevorzugt)' },
           servings: { type: 'integer', minimum: 1 },
+          start_date: { type: 'string', format: 'date', description: 'Plan-Startdatum (optional, für 1-Tages-Pläne)' },
+          end_date: { type: 'string', format: 'date', description: 'Plan-Enddatum (optional, für 1-Tages-Pläne)' },
         },
       },
     },
   }, async (request, reply) => {
-    const { recipe_id, day_of_week, category_id, week_start, plan_date, servings: requestedServings } = request.body;
+    const { recipe_id, day_of_week, category_id, week_start, plan_date, servings: requestedServings, start_date, end_date } = request.body;
     const userId = request.user.id;
     const householdId = request.householdId;
     const hhWhere = householdWhereClause(userId, householdId, 'r');
@@ -644,9 +647,12 @@ export default async function mealplanRoutes(fastify) {
     const mpWhere = householdWhereClause(userId, householdId, 'mp');
     let plan = db.prepare(`SELECT mp.id FROM meal_plans mp WHERE (${mpWhere.clause}) AND mp.week_start = ?`).get(...mpWhere.params, week_start);
     if (!plan) {
+      // Neuen Plan mit optionalen start_date/end_date erstellen
+      const planStartDate = start_date || week_start;
+      const planEndDate = end_date || addDays(week_start, 6);
       const { lastInsertRowid } = db.prepare(
-        'INSERT INTO meal_plans (user_id, week_start, household_id) VALUES (?, ?, ?)'
-      ).run(userId, week_start, householdId || null);
+        'INSERT INTO meal_plans (user_id, week_start, start_date, end_date, household_id) VALUES (?, ?, ?, ?, ?)'
+      ).run(userId, week_start, planStartDate, planEndDate, householdId || null);
       plan = { id: Number(lastInsertRowid) };
     }
 

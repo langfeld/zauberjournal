@@ -1,8 +1,8 @@
 /**
  * ============================================
- * MealPlan Store - Wochenplan-Verwaltung
+ * MealPlan Store - Kalender-basierte Wochenplan-Verwaltung
  * ============================================
- * Pinia Store mit Wochen-Navigation, Generierung,
+ * Pinia Store mit Monats-Kalender, Generierung,
  * Rezepttausch, Drag & Drop und Gekocht-Status.
  */
 
@@ -13,26 +13,48 @@ import { offlineQueue } from '@/services/offlineQueue.js';
 
 export const useMealPlanStore = defineStore('mealplan', () => {
   const currentPlan = ref(null);
-  const plans = ref([]); // Liste aller Pläne (für Plan-Ansicht Dropdown)
+  const plans = ref([]);
   const reasoning = ref(null);
-  const reasoningSource = ref(null); // 'ai' | 'algorithm' | null
-  const reasoningLoading = ref(false); // Lädt KI-Reasoning im Hintergrund?
+  const reasoningSource = ref(null);
+  const reasoningLoading = ref(false);
   const planHistory = ref([]);
   const availableWeeks = ref([]);
-  const lastWeekRecipes = ref([]); // Rezepte der letzten realen Kalenderwoche
-  const pastWeekRecipes = ref([]); // Rezepte einer vergangenen Woche (Slider)
-  const pastWeekOffset = ref(1); // Offset für vergangene Wochen (1 = letzte Woche)
-  const pastWeekNumber = ref(null); // KW-Nummer der geladenen vergangenen Woche
-  const pastWeekHasPlan = ref(false); // Hat diese vergangene Woche einen Plan?
-  const pastWeekIndex = ref(0); // Index in pastWeeksList (für Skip-Navigation)
+  const lastWeekRecipes = ref([]);
+  const pastWeekRecipes = ref([]);
+  const pastWeekOffset = ref(1);
+  const pastWeekNumber = ref(null);
+  const pastWeekHasPlan = ref(false);
+  const pastWeekIndex = ref(0);
   const loading = ref(false);
   const generating = ref(false);
-  const lastFetched = ref(null); // Timestamp des letzten Fetches
+  const lastFetched = ref(null);
 
   // ── Wochenansicht: plan-übergreifende Entries (Mo-So) ──
-  const weekViewData = ref(null); // { entries, plans, startDate, endDate }
+  const weekViewData = ref(null);
+
+  // ── Kalender-Ansicht (neu) ──
+  const calendarMonth = ref(new Date());
+  const selectedDateRange = ref(null); // { startDate, endDate }
+  const calendarData = ref(null); // { entries: [], plans: [] }
+  const planColors = ref({}); // Map: planId -> color
 
   const api = useApi();
+
+  /** Hilfsfunktion: Farbe eines Plans cachen */
+  function cachePlanColor(planId, color) {
+    if (planId && color) {
+      planColors.value[planId] = color;
+    }
+  }
+
+  /** Hilfsfunktion: Farben aus Plan-Array cachen */
+  function cachePlanColors(planList) {
+    for (const p of (planList || [])) {
+      if (p.id && p.color) {
+        planColors.value[p.id] = p.color;
+      }
+    }
+  }
 
   /** Wochenplan generieren */
   async function generatePlan(options = {}) {
@@ -42,6 +64,9 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     try {
       const data = await api.post('/mealplan/generate', options);
       currentPlan.value = data.plan;
+      if (data.plan?.id && data.plan?.color) {
+        cachePlanColor(data.plan.id, data.plan.color);
+      }
       return data;
     } finally {
       generating.value = false;
@@ -61,10 +86,8 @@ export const useMealPlanStore = defineStore('mealplan', () => {
           reasoningSource.value = data.reasoningSource || 'ai';
           return data;
         }
-        // Noch nicht fertig → warten und nochmal
         await new Promise(r => setTimeout(r, interval));
       }
-      // Timeout → kein Reasoning
       console.warn('KI-Reasoning Timeout nach', maxAttempts, 'Versuchen');
     } finally {
       reasoningLoading.value = false;
@@ -78,8 +101,10 @@ export const useMealPlanStore = defineStore('mealplan', () => {
       const params = weekStart ? `?weekStart=${weekStart}` : '';
       const data = await api.get(`/mealplan${params}`);
       currentPlan.value = data.plan;
+      if (data.plan?.id && data.plan?.color) {
+        cachePlanColor(data.plan.id, data.plan.color);
+      }
       lastFetched.value = Date.now();
-      // Gespeichertes Reasoning aus der DB wiederherstellen
       if (data.plan?.reasoning) {
         reasoning.value = data.plan.reasoning;
         reasoningSource.value = 'ai';
@@ -89,7 +114,6 @@ export const useMealPlanStore = defineStore('mealplan', () => {
       }
       return data;
     } catch (err) {
-      // Bei Netzwerkfehler: gecachte Daten behalten
       if (!navigator.onLine && currentPlan.value) {
         return { plan: currentPlan.value };
       }
@@ -99,14 +123,12 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     }
   }
 
-  /** Alle Entries in einem Datumsbereich laden (plan-übergreifend, für Wochenansicht) */
+  /** Alle Entries in einem Datumsbereich laden (plan-übergreifend) */
   async function fetchWeekEntries(startDate, endDate) {
     loading.value = true;
     try {
       const data = await api.get(`/mealplan?startDate=${startDate}&endDate=${endDate}`);
       weekViewData.value = data;
-      // currentPlan als aggregierter "Wochen-Plan" setzen, damit die Wochenansicht
-      // (getMeal, dayHasMeals etc.) weiterhin funktioniert
       currentPlan.value = {
         id: null,
         week_start: startDate,
@@ -115,6 +137,7 @@ export const useMealPlanStore = defineStore('mealplan', () => {
         entries: data.entries || [],
         is_locked: false,
       };
+      cachePlanColors(data.plans);
       lastFetched.value = Date.now();
       return data;
     } catch (err) {
@@ -127,6 +150,45 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     }
   }
 
+  /** Alle Entries für einen ganzen Monat laden (für Kalender-Ansicht) */
+  async function fetchMonthEntries(year, month) {
+    loading.value = true;
+    try {
+      const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const endDateObj = new Date(year, month + 1, 0);
+      const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(endDateObj.getDate()).padStart(2, '0')}`;
+
+      const data = await api.get(`/mealplan?startDate=${startDate}&endDate=${endDate}`);
+      calendarData.value = data;
+      cachePlanColors(data.plans);
+      lastFetched.value = Date.now();
+      return data;
+    } catch (err) {
+      if (!navigator.onLine && calendarData.value) {
+        return calendarData.value;
+      }
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  /** Kalendermonat setzen und Daten laden */
+  async function setCalendarMonth(date) {
+    calendarMonth.value = new Date(date);
+    return fetchMonthEntries(date.getFullYear(), date.getMonth());
+  }
+
+  /** Zeitraum-Selektion für Generierung setzen */
+  function setSelectedDateRange(startDate, endDate) {
+    selectedDateRange.value = { startDate, endDate };
+  }
+
+  /** Zeitraum-Selektion zurücksetzen */
+  function clearSelectedDateRange() {
+    selectedDateRange.value = null;
+  }
+
   /** Rezepte der letzten realen Kalenderwoche laden */
   async function fetchLastWeekRecipes() {
     try {
@@ -134,7 +196,7 @@ export const useMealPlanStore = defineStore('mealplan', () => {
       lastWeekRecipes.value = data.recipes || [];
       return data;
     } catch {
-      // silent – nicht kritisch
+      // silent
     }
   }
 
@@ -153,19 +215,17 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     }
   }
 
-  /** Vergangene Wochen mit Plänen (≥2 Wochen zurück), sortiert DESC */
+  /** Vergangene Wochen mit Plänen (>=2 Wochen zurück), sortiert DESC */
   const pastWeeksList = computed(() => {
     const now = new Date();
-    // Montag der aktuellen Woche berechnen
-    const dayOfWeek = now.getDay(); // 0=So, 1=Mo, ...
+    const dayOfWeek = now.getDay();
     const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const currentMonday = new Date(now);
     currentMonday.setHours(0, 0, 0, 0);
     currentMonday.setDate(currentMonday.getDate() - diff);
-    // Grenze: alles vor letzter Woche (≥2 Wochen zurück)
     const cutoff = new Date(currentMonday);
-    cutoff.setDate(cutoff.getDate() - 7); // letzte Woche noch ausschließen
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
 
     return (availableWeeks.value || [])
       .filter(w => w.week_start < cutoffStr)
@@ -176,6 +236,7 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   async function fetchHistory() {
     const data = await api.get('/mealplan/history');
     planHistory.value = data.plans;
+    cachePlanColors(data.plans);
     return data;
   }
 
@@ -192,7 +253,6 @@ export const useMealPlanStore = defineStore('mealplan', () => {
 
   /** Eintrag als gekocht togglen (offline-fähig) */
   async function markCooked(planId, entryId) {
-    // Optimistic UI sofort
     let entry = null;
     if (currentPlan.value?.entries) {
       entry = currentPlan.value.entries.find(e => e.id === entryId);
@@ -202,10 +262,8 @@ export const useMealPlanStore = defineStore('mealplan', () => {
 
     try {
       const data = await apiRaw(`/mealplan/${planId}/entry/${entryId}/cooked`, { method: 'POST', body: { is_cooked: newState } });
-      // Bei Tausch: kompletten Plan übernehmen (Positionen haben sich geändert)
       if (data.swapped && data.plan && currentPlan.value) {
         if (!currentPlan.value.id && weekViewData.value) {
-          // Aggregierter Wochen-Plan: neu laden statt Plan zu ersetzen
           const { startDate, endDate } = weekViewData.value;
           await fetchWeekEntries(startDate, endDate);
         } else {
@@ -223,9 +281,8 @@ export const useMealPlanStore = defineStore('mealplan', () => {
           payload: { planId, entryId, is_cooked: newState },
           storeName: 'mealplan',
         });
-        return { is_cooked: newState }; // Optimistic UI bleibt
+        return { is_cooked: newState };
       }
-      // Anderer Fehler: Rollback
       if (entry) entry.is_cooked = newState ? 0 : 1;
       throw err;
     }
@@ -233,7 +290,6 @@ export const useMealPlanStore = defineStore('mealplan', () => {
 
   /** Portionen eines Eintrags ändern (offline-fähig) */
   async function updateServings(planId, entryId, servings) {
-    // Optimistic UI
     let oldServings = null;
     if (currentPlan.value?.entries) {
       const entry = currentPlan.value.entries.find(e => e.id === entryId);
@@ -259,7 +315,6 @@ export const useMealPlanStore = defineStore('mealplan', () => {
         });
         return { entry: { id: entryId, servings } };
       }
-      // Rollback
       if (oldServings !== null && currentPlan.value?.entries) {
         const entry = currentPlan.value.entries.find(e => e.id === entryId);
         if (entry) entry.servings = oldServings;
@@ -271,7 +326,6 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   /** Rezept eines Eintrags tauschen */
   async function swapRecipe(planId, entryId, newRecipeId) {
     const data = await api.put(`/mealplan/${planId}/entry/${entryId}`, { recipe_id: newRecipeId });
-    // Lokalen Entry aktualisieren
     if (currentPlan.value?.entries && data.entry) {
       const idx = currentPlan.value.entries.findIndex(e => e.id === entryId);
       if (idx !== -1) currentPlan.value.entries[idx] = data.entry;
@@ -291,7 +345,7 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Rezept manuell zum Wochenplan hinzufügen (erstellt Plan automatisch) */
-  async function addRecipeToPlan(recipeId, dayOfWeek, categoryId, weekStart, servings, planDate) {
+  async function addRecipeToPlan(recipeId, dayOfWeek, categoryId, weekStart, servings, planDate, startDate, endDate) {
     const body = {
       recipe_id: recipeId,
       day_of_week: dayOfWeek,
@@ -300,10 +354,14 @@ export const useMealPlanStore = defineStore('mealplan', () => {
       servings,
     };
     if (planDate) body.plan_date = planDate;
+    if (startDate) body.start_date = startDate;
+    if (endDate) body.end_date = endDate;
     const data = await api.post('/mealplan/add-recipe', body);
-    // Wenn der aktuelle Plan betroffen ist, aktualisieren
     if (data.plan && currentPlan.value?.week_start === weekStart) {
       currentPlan.value = data.plan;
+    }
+    if (data.plan?.id && data.plan?.color) {
+      cachePlanColor(data.plan.id, data.plan.color);
     }
     return data;
   }
@@ -315,7 +373,6 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     const data = await api.post(`/mealplan/${planId}/entry/${entryId}/move`, body);
     if (data.plan) {
       if (!currentPlan.value?.id && currentPlan.value?.entries) {
-        // Aggregierter Wochen-Plan: Entry direkt aktualisieren statt Plan zu ersetzen
         const entry = currentPlan.value.entries.find(e => e.id === entryId);
         if (entry) {
           entry.day_of_week = dayOfWeek;
@@ -349,10 +406,8 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     if (currentPlan.value && currentPlan.value.id === planId) {
       currentPlan.value.is_locked = data.is_locked;
     }
-    // availableWeeks synchronisieren (für ShoppingView-Dropdown)
     const weekEntry = availableWeeks.value.find(w => w.id === planId);
     if (weekEntry) weekEntry.is_locked = data.is_locked;
-    // planHistory synchronisieren (für LoadPlanDialog)
     const historyEntry = planHistory.value.find(p => p.id === planId);
     if (historyEntry) historyEntry.is_locked = data.is_locked;
     return data;
@@ -362,13 +417,15 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   async function fetchAvailableWeeks() {
     const data = await api.get('/mealplan/available-weeks');
     availableWeeks.value = data.weeks;
+    cachePlanColors(data.weeks);
     return data;
   }
 
-  /** Alle Pläne mit Metadaten laden (für Plan-Ansicht Dropdown) */
+  /** Alle Pläne mit Metadaten laden */
   async function fetchPlans() {
     const data = await api.get('/mealplan/plans');
     plans.value = data.plans || [];
+    cachePlanColors(data.plans);
     return data;
   }
 
@@ -378,6 +435,9 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     try {
       const data = await api.get(`/mealplan?planId=${planId}`);
       currentPlan.value = data.plan;
+      if (data.plan?.id && data.plan?.color) {
+        cachePlanColor(data.plan.id, data.plan.color);
+      }
       lastFetched.value = Date.now();
       if (data.plan?.reasoning) {
         reasoning.value = data.plan.reasoning;
@@ -400,9 +460,11 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   /** Plan auf eine andere Woche duplizieren */
   async function duplicatePlan(sourcePlanId, targetWeekStart) {
     const data = await api.post(`/mealplan/${sourcePlanId}/duplicate`, { targetWeekStart });
-    // Wenn Zielwoche = aktuell angezeigte Woche, Plan aktualisieren
     if (data.plan) {
       currentPlan.value = data.plan;
+      if (data.plan?.id && data.plan?.color) {
+        cachePlanColor(data.plan.id, data.plan.color);
+      }
     }
     return data;
   }
@@ -411,12 +473,14 @@ export const useMealPlanStore = defineStore('mealplan', () => {
     currentPlan, plans, reasoning, reasoningSource, reasoningLoading, planHistory, availableWeeks, lastWeekRecipes, loading, generating, lastFetched,
     pastWeekRecipes, pastWeekOffset, pastWeekNumber, pastWeekHasPlan, pastWeekIndex, pastWeeksList,
     weekViewData,
+    calendarMonth, selectedDateRange, calendarData, planColors,
     generatePlan, pollReasoning, fetchCurrentPlan, fetchPlanById, fetchPlans, fetchHistory, fetchAvailableWeeks, fetchLastWeekRecipes, fetchPastWeekRecipes,
-    fetchWeekEntries, fetchSuggestions, markCooked, updateServings, swapRecipe, addEntry, addRecipeToPlan, moveEntry, removeEntry, deletePlan,
+    fetchWeekEntries, fetchMonthEntries, setCalendarMonth, setSelectedDateRange, clearSelectedDateRange,
+    fetchSuggestions, markCooked, updateServings, swapRecipe, addEntry, addRecipeToPlan, moveEntry, removeEntry, deletePlan,
     toggleLock, duplicatePlan,
   };
 }, {
   persist: {
-    pick: ['currentPlan', 'availableWeeks', 'planHistory', 'lastFetched', 'lastWeekRecipes'],
+    pick: ['currentPlan', 'availableWeeks', 'planHistory', 'lastFetched', 'lastWeekRecipes', 'planColors'],
   },
 });

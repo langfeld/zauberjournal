@@ -20,6 +20,32 @@ import { estimateNutrition } from './recipe-parser.js';
 
 const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
+/** Farbpalette für Pläne in der Kalender-Ansicht */
+const PLAN_COLORS = [
+  '#ef4444', // red-500
+  '#f97316', // orange-500
+  '#eab308', // yellow-500
+  '#22c55e', // green-500
+  '#06b6d4', // cyan-500
+  '#3b82f6', // blue-500
+  '#8b5cf6', // violet-500
+  '#ec4899', // pink-500
+];
+
+/**
+ * Wählt eine Farbe aus der Palette basierend auf einem Seed-Wert (stabil).
+ */
+function pickPlanColor(seed) {
+  let hash = 0;
+  const str = String(seed);
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const index = Math.abs(hash) % PLAN_COLORS.length;
+  return PLAN_COLORS[index];
+}
+
 /**
  * Formatiert ein Date-Objekt als YYYY-MM-DD (lokale Zeitzone, kein UTC-Shift).
  */
@@ -911,17 +937,22 @@ export function saveMealPlan(userId, startDate, endDate, planData, householdId) 
   }
 
   const insertPlan = db.prepare(
-    'INSERT INTO meal_plans (user_id, week_start, start_date, end_date, reasoning, household_id) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO meal_plans (user_id, week_start, start_date, end_date, reasoning, household_id, color) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
   const insertEntry = db.prepare(
     'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
+  const updateColor = db.prepare('UPDATE meal_plans SET color = ? WHERE id = ?');
 
   const transaction = db.transaction(() => {
     // Legacy week_start = startDate (für Abwärtskompatibilität)
     const { lastInsertRowid: planId } = insertPlan.run(
-      userId, startDate, startDate, endDate, planData.reasoning || null, householdId || null
+      userId, startDate, startDate, endDate, planData.reasoning || null, householdId || null, null
     );
+
+    // Stabile Farbe basierend auf der Plan-ID zuweisen
+    const color = pickPlanColor(planId);
+    updateColor.run(color, planId);
 
     for (const day of plan) {
       const dayOfWeek = day.day_of_week ?? day.day ?? plan.indexOf(day);
@@ -946,7 +977,7 @@ export function saveMealPlan(userId, startDate, endDate, planData, householdId) 
 export function getMealPlan(userId, weekStart, householdId) {
   const hw = householdWhereClause(userId, householdId);
   const plan = db.prepare(
-    `SELECT id, user_id, week_start, start_date, end_date, created_at, reasoning, is_locked
+    `SELECT id, user_id, week_start, start_date, end_date, created_at, reasoning, is_locked, color
      FROM meal_plans WHERE (${hw.clause}) AND week_start = ?
      ORDER BY created_at DESC LIMIT 1`
   ).get(...hw.params, weekStart);
@@ -994,7 +1025,7 @@ export function getMealPlan(userId, weekStart, householdId) {
 export function getMealPlanById(userId, planId, householdId) {
   const hw = householdWhereClause(userId, householdId);
   const plan = db.prepare(
-    `SELECT id, user_id, week_start, start_date, end_date, created_at, reasoning, is_locked
+    `SELECT id, user_id, week_start, start_date, end_date, created_at, reasoning, is_locked, color
      FROM meal_plans WHERE (${hw.clause}) AND id = ?`
   ).get(...hw.params, planId);
 
@@ -1050,6 +1081,7 @@ export function getEntriesByDateRange(userId, startDate, endDate, householdId) {
       mpe.*,
       mp.start_date as plan_start_date,
       mp.end_date as plan_end_date,
+      mp.color as plan_color,
       mcat.name as category_name,
       mcat.icon as category_icon,
       mcat.color as category_color,
@@ -1081,7 +1113,7 @@ export function getEntriesByDateRange(userId, startDate, endDate, householdId) {
 
   // Betroffene Pläne für Metadaten
   const plans = db.prepare(`
-    SELECT DISTINCT mp.id, mp.start_date, mp.end_date, mp.week_start, mp.is_locked
+    SELECT DISTINCT mp.id, mp.start_date, mp.end_date, mp.week_start, mp.is_locked, mp.color
     FROM meal_plans mp
     JOIN meal_plan_entries mpe ON mp.id = mpe.meal_plan_id
     WHERE (${hw.clause}) AND mpe.plan_date BETWEEN ? AND ?

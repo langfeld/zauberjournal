@@ -261,13 +261,8 @@ const emit = defineEmits([
 
 const router = useRouter();
 
-// Eingeklappt wenn Plan existiert, aufgeklappt wenn nicht
-const collapsed = ref(!!props.currentPlan);
-
-watch(() => props.currentPlan, (newPlan, oldPlan) => {
-  if (!oldPlan && newPlan) collapsed.value = true;
-  else if (oldPlan && !newPlan) collapsed.value = false;
-});
+// Standard: aufgeklappt. Nutzer kann manuell ein-/ausklappen.
+const collapsed = ref(false);
 
 const activeTab = ref('lastWeek');
 

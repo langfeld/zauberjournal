@@ -1054,6 +1054,12 @@ function migrateDatabase() {
     console.log('  ↳ Migration: meal_plans.start_date/end_date fertig');
   }
 
+  // Spalte 'color' in meal_plans hinzufügen (Plan-Farbe für Kalender-Ansicht)
+  if (!mpCols.includes('color')) {
+    db.exec("ALTER TABLE meal_plans ADD COLUMN color TEXT");
+    console.log('  ↳ Migration: meal_plans.color hinzugefügt');
+  }
+
   // ─── meal_plan_entries: plan_date (konkretes Datum statt day_of_week) ───
   const mpeCols2 = db.prepare("PRAGMA table_info(meal_plan_entries)").all().map(c => c.name);
   if (!mpeCols2.includes('plan_date')) {
