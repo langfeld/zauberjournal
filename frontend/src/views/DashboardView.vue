@@ -324,45 +324,50 @@ const todayMeals = computed(() => {
   return mealPlanStore.currentPlan.entries.filter(e => e.day_of_week === dayOfWeek);
 });
 
-// Aktueller Wochenplan – Tage aus dem Plan-Zeitraum berechnen,
-// nicht aus dem heutigen Datum. So passen die Rezepte auch bei
-// Plänen, die nicht in der aktuellen Woche liegen.
+// Aktueller Wochenplan – immer Mo–So anzeigen, Rezepte nach plan_date
+// zuordnen (nicht day_of_week, das kann bei nicht-wochen-genaue Plänen
+// verschoben sein).
 const weekPlanDays = computed(() => {
   if (!mealPlanStore.currentPlan?.entries?.length) return [];
 
   const plan = mealPlanStore.currentPlan;
   const startStr = plan.start_date || plan.week_start;
-  const endStr = plan.end_date;
   if (!startStr) return [];
 
   const dayNames = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
   const monthNames = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
-  const start = new Date(startStr + 'T12:00:00');
-  const end = endStr ? new Date(endStr + 'T12:00:00') : new Date(start.getTime() + 6 * 86400000);
+  // Montag der Woche, die den Plan-Start enthält
+  const planStart = new Date(startStr + 'T12:00:00');
+  const jsDay = planStart.getDay(); // 0=So, 1=Mo…
+  const mondayOffset = jsDay === 0 ? 6 : jsDay - 1;
+  const monday = new Date(planStart);
+  monday.setDate(planStart.getDate() - mondayOffset);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const days = [];
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const jsDay = d.getDay(); // 0=So, 1=Mo…
-    const dayOfWeek = jsDay === 0 ? 6 : jsDay - 1; // 0=Mo…6=So
+  function formatDateLocal(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const dateKey = formatDateLocal(d);
 
     const isToday = d.getFullYear() === today.getFullYear() &&
                     d.getMonth() === today.getMonth() &&
                     d.getDate() === today.getDate();
 
-    days.push({
-      dayOfWeek,
-      dayName: dayNames[dayOfWeek],
+    return {
+      dayOfWeek: i,
+      dayName: dayNames[i],
       dateStr: `${d.getDate()}. ${monthNames[d.getMonth()]}`,
       isToday,
-      meals: plan.entries.filter(e => e.day_of_week === dayOfWeek),
-    });
-  }
-
-  return days;
+      meals: plan.entries.filter(e => e.plan_date === dateKey),
+    };
+  });
 });
 
 // Schnellaktionen
