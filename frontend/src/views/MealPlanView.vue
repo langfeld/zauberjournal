@@ -61,7 +61,7 @@
         <!-- Rezeptvorschläge (einklappbar, im Inhalt) -->
         <SuggestionBox
           :last-week-recipes="store.lastWeekRecipes"
-          :household-suggestions="suggestions"
+          :household-suggestions="store.householdSuggestions"
           :past-week-recipes="store.pastWeekRecipes"
           :past-week-index="store.pastWeekIndex"
           :past-week-number="store.pastWeekNumber"
@@ -338,9 +338,6 @@ const slotSelectDate = ref('');
 const pendingDropRecipe = ref(null);
 const pendingDropIsExistingPlan = ref(false);
 
-// Suggestions
-const suggestions = ref([]);
-
 // Confirm Dialog
 const confirmDialog = ref({
   show: false,
@@ -482,6 +479,7 @@ onMounted(() => {
   store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
   store.fetchAvailableWeeks();
   store.fetchLastWeekRecipes();
+  store.fetchHouseholdSuggestions();
   recipesStore.fetchCategories();
   collectionsStore.fetchCollections();
 });
@@ -853,7 +851,11 @@ function onAssignRecipe(data) {
   store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
 }
 
-async function onPastWeekChange(weekStart) {
+async function onPastWeekChange(payload) {
+  const weekStart = payload?.weekStart ?? payload;
+  if (typeof payload?.index === 'number') {
+    store.pastWeekIndex = payload.index;
+  }
   await store.fetchPastWeekRecipes(weekStart);
 }
 

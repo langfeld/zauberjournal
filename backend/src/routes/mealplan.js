@@ -16,6 +16,29 @@ import { aiPantryDeduction, undoAIPantryDeduction } from '../services/pantry-ded
 import { createAIProgress } from '../utils/ai-progress.js';
 
 /**
+ * Baut einen kurzen Grund-Text für Haushalt-Vorschläge.
+ */
+function buildSuggestionReason(recipe) {
+  const reasons = [];
+  if (recipe.is_favorite) reasons.push('Favorit');
+  if (recipe.avg_rating >= 4) reasons.push(`Bewertung: ${Number(recipe.avg_rating).toFixed(1)}★`);
+  if (!recipe.last_cooked) {
+    reasons.push('Noch nie gekocht');
+  } else {
+    const days = Math.floor((Date.now() - new Date(recipe.last_cooked).getTime()) / 86_400_000);
+    if (days >= 30) reasons.push(`Seit ${days} Tagen nicht gekocht`);
+    else if (days >= 14) reasons.push(`Seit ${days} Tagen nicht gekocht`);
+  }
+  if (recipe.cook_count > 0 && recipe.cook_count <= 2) {
+    reasons.push(`Erst ${recipe.cook_count}× gekocht`);
+  }
+  if (recipe.total_time && recipe.total_time <= 30) {
+    reasons.push('Unter 30 Minuten');
+  }
+  return reasons.slice(0, 2).join(' · ') || 'Rezeptvorschlag';
+}
+
+/**
  * Regelbasierter Vorratsabzug (Original-Logik).
  * Wird als Fallback verwendet wenn KI-Deduktion deaktiviert ist oder fehlschlägt.
  */
@@ -742,6 +765,56 @@ export default async function mealplanRoutes(fastify) {
 
     const suggestions = getSuggestions(request.user.id, { dayIdx, categoryId, categoryName, excludeRecipeIds, planId, limit, search, householdId: request.householdId });
     return { suggestions };
+  });
+
+  // ─────────────────────────────────────────────
+  // GET /household-suggestions – Allgemeine Haushalt-Vorschläge
+  // ─────────────────────────────────────────────
+  fastify.get('/household-suggestions', {
+    schema: {
+      description: 'Allgemeine Rezeptvorschläge für den Haushalt (Favoriten, lange nicht gekocht, etc.)',
+      tags: ['Wochenplan'],
+      security: [{ bearerAuth: [] }],
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 24, default: 12 },
+        },
+      },
+    },
+  }, async (request) => {
+    const limit = request.query.limit || 12;
+    const userId = request.user.id;
+    const householdId = request.householdId;
+
+    const rWhere = householdWhereClause(userId, householdId, 'r');
+    const recipes = db.prepare(`
+      SELECT r.*,
+        (SELECT COUNT(*) FROM cooking_history ch WHERE ch.recipe_id = r.id) as cook_count,
+        (SELECT MAX(ch.cooked_at) FROM cooking_history ch WHERE ch.recipe_id = r.id) as last_cooked,
+        (SELECT AVG(ch.rating) FROM cooking_history ch WHERE ch.recipe_id = r.id AND ch.rating IS NOT NULL) as avg_rating
+      FROM recipes r
+      WHERE (${rWhere.clause})
+      ORDER BY
+        r.is_favorite DESC,
+        avg_rating DESC NULLS LAST,
+        r.last_cooked_at ASC NULLS FIRST,
+        r.times_cooked ASC
+      LIMIT ?
+    `).all(...rWhere.params, limit);
+
+    return {
+      suggestions: recipes.map(r => ({
+        id: r.id,
+        title: r.title,
+        image_url: r.image_url,
+        total_time: r.total_time,
+        difficulty: r.difficulty,
+        is_favorite: r.is_favorite,
+        calories: r.calories,
+        reason: buildSuggestionReason(r),
+      })),
+    };
   });
 
   // ─────────────────────────────────────────────

@@ -25,6 +25,7 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   const pastWeekNumber = ref(null);
   const pastWeekHasPlan = ref(false);
   const pastWeekIndex = ref(0);
+  const householdSuggestions = ref([]);
   const loading = ref(false);
   const generating = ref(false);
   const lastFetched = ref(null);
@@ -212,6 +213,17 @@ export const useMealPlanStore = defineStore('mealplan', () => {
       pastWeekRecipes.value = [];
       pastWeekNumber.value = null;
       pastWeekHasPlan.value = false;
+    }
+  }
+
+  /** Haushalt-Vorschläge laden */
+  async function fetchHouseholdSuggestions(limit = 12) {
+    try {
+      const data = await api.get(`/mealplan/household-suggestions?limit=${limit}`);
+      householdSuggestions.value = data.suggestions || [];
+      return data;
+    } catch {
+      householdSuggestions.value = [];
     }
   }
 
@@ -496,10 +508,11 @@ export const useMealPlanStore = defineStore('mealplan', () => {
 
   return {
     currentPlan, plans, reasoning, reasoningSource, reasoningLoading, planHistory, availableWeeks, lastWeekRecipes, loading, generating, lastFetched,
-    pastWeekRecipes, pastWeekOffset, pastWeekNumber, pastWeekHasPlan, pastWeekIndex, pastWeeksList,
+    pastWeekRecipes, pastWeekOffset, pastWeekNumber, pastWeekHasPlan, pastWeekIndex, pastWeeksList, householdSuggestions,
     weekViewData,
     calendarMonth, selectedDateRange, calendarData, planColors,
     generatePlan, pollReasoning, fetchCurrentPlan, fetchPlanById, fetchPlans, fetchHistory, fetchAvailableWeeks, fetchLastWeekRecipes, fetchPastWeekRecipes,
+    fetchHouseholdSuggestions,
     fetchWeekEntries, fetchMonthEntries, setCalendarMonth, setSelectedDateRange, clearSelectedDateRange,
     fetchSuggestions, markCooked, updateServings, swapRecipe, addEntry, addRecipeToPlan, moveEntry, removeEntry, deletePlan,
     toggleLock, duplicatePlan, updatePlan,
