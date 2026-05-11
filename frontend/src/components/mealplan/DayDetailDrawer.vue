@@ -7,13 +7,10 @@
 -->
 <template>
   <Transition name="drawer">
-    <div v-if="isOpen" class="z-50 fixed inset-0" @click.self="close">
-      <!-- Backdrop -->
-      <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="close" />
-
+    <div v-if="isOpen" class="z-50 fixed inset-0 pointer-events-none">
       <!-- Drawer -->
       <div
-        class="absolute bg-white dark:bg-stone-900 shadow-2xl flex flex-col"
+        class="absolute bg-white dark:bg-stone-900 shadow-2xl flex flex-col pointer-events-auto"
         :class="isMobile ? 'bottom-0 inset-x-0 rounded-t-2xl max-h-[85vh]' : 'right-0 top-0 bottom-0 w-full max-w-lg rounded-l-2xl'"
       >
         <!-- Header -->

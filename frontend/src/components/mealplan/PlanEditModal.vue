@@ -6,10 +6,8 @@
 -->
 <template>
   <Transition name="modal">
-    <div v-if="isOpen" class="z-50 fixed inset-0 flex justify-center items-center p-4" @click.self="close">
-      <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="close" />
-
-      <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-sm p-6">
+    <div v-if="isOpen" class="z-50 fixed inset-0 flex justify-center items-center p-4 pointer-events-none">
+      <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-sm p-6 pointer-events-auto">
         <h3 class="font-bold text-stone-800 dark:text-stone-100 text-lg mb-4">
           Plan bearbeiten
         </h3>

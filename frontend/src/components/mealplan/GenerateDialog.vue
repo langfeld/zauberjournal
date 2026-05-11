@@ -7,10 +7,8 @@
 -->
 <template>
   <Transition name="modal">
-    <div v-if="isOpen" class="z-50 fixed inset-0 flex justify-center items-center p-4" @click.self="close">
-      <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="close" />
-
-      <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+    <div v-if="isOpen" class="z-50 fixed inset-0 flex justify-center items-center p-4 pointer-events-none">
+      <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col pointer-events-auto">
         <!-- Header -->
         <div class="shrink-0 flex items-center justify-between px-6 py-4 border-b border-stone-200 dark:border-stone-700">
           <h3 class="font-bold text-stone-800 dark:text-stone-100 text-lg">Plan generieren</h3>

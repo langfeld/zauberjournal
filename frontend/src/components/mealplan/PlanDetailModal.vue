@@ -7,12 +7,9 @@
 -->
 <template>
   <Transition name="modal">
-    <div v-if="isOpen" class="z-50 fixed inset-0 flex justify-center items-center p-4" @click.self="close">
-      <!-- Backdrop -->
-      <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="close" />
-
+    <div v-if="isOpen" class="z-50 fixed inset-0 flex justify-center items-center p-4 pointer-events-none">
       <!-- Modal -->
-      <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+      <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col pointer-events-auto">
         <!-- Header -->
         <div class="flex items-start gap-4 shrink-0 px-6 py-5 border-b border-stone-200 dark:border-stone-700">
           <!-- Farb-Indikator -->
