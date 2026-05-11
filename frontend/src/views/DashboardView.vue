@@ -389,12 +389,42 @@ onMounted(async () => {
     pantryStore.fetchItems(),
     fetchDashboardFeed(),
   ]);
+
+  // Fallback: Wenn kein Plan für die aktuelle Woche existiert,
+  // suche unter allen Plänen denjenigen, dessen Zeitraum am
+  // nächsten an "heute" liegt (egal ob vergangen oder zukünftig).
+  if (!mealPlanStore.currentPlan) {
+    try {
+      const { plans } = await mealPlanStore.fetchPlans();
+      if (plans?.length) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayTs = today.getTime();
+
+        function planDistance(p) {
+          const s = p.start_date || p.week_start;
+          const e = p.end_date || s;
+          if (!s) return Infinity;
+          const start = new Date(s + 'T12:00:00').getTime();
+          const end = new Date(e + 'T12:00:00').getTime();
+          if (todayTs >= start && todayTs <= end) return 0; // heute im Plan
+          if (todayTs < start) return start - todayTs;      // Plan liegt in Zukunft
+          return todayTs - end;                             // Plan liegt in Vergangenheit
+        }
+
+        const best = plans.slice().sort((a, b) => planDistance(a) - planDistance(b))[0];
+        if (best) {
+          await mealPlanStore.fetchPlanById(best.id);
+        }
+      }
+    } catch { /* silent */ }
+  }
 });
 
 async function markMealCooked(meal) {
   if (mealPlanStore.currentPlan) {
     await mealPlanStore.markCooked(mealPlanStore.currentPlan.id, meal.id);
-    await mealPlanStore.fetchCurrentPlan();
+    await mealPlanStore.fetchPlanById(mealPlanStore.currentPlan.id);
   }
 }
 </script>
