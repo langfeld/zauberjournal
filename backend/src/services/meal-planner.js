@@ -782,8 +782,13 @@ export async function generateWeekPlan(userId, options = {}) {
   // --- Planungsdaten bestimmen ---
   let planDates;
   if (startDate && endDate) {
-    // Neuer Modus: alle Daten im Bereich werden geplant
-    planDates = getDateRange(startDate, endDate);
+    // Neuer Modus: alle Daten im Bereich, aber activeDays beachten
+    const allDates = getDateRange(startDate, endDate);
+    const activeDaySet = new Set(activeDays);
+    planDates = allDates.map(d => ({
+      ...d,
+      active: activeDaySet.has(d.day_of_week),
+    }));
   } else {
     // Legacy-Modus: weekStart + activeDays (0=Mo...6=So)
     const ws = options.weekStart || getWeekStart();
@@ -798,7 +803,7 @@ export async function generateWeekPlan(userId, options = {}) {
   for (const planDate of planDates) {
     const dayIdx = planDate.day_of_week;
 
-    // Tag überspringen wenn nicht aktiv (nur Legacy-Modus)
+    // Tag überspringen wenn nicht aktiv
     if (planDate.active === false) {
       plan.push({
         plan_date: planDate.plan_date,

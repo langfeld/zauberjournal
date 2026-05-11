@@ -175,6 +175,8 @@
     :generating="store.generating"
     :initial-range="store.selectedDateRange"
     :meal-categories="mealTypes"
+    :collections="collectionsStore.collections"
+    :is-in-household="householdStore.isInHousehold"
     @close="showGenerateDialog = false"
     @generate="doGenerate"
   />
