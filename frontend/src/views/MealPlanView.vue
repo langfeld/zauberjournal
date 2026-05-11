@@ -29,6 +29,23 @@
               <BookOpen class="w-4 h-4" />
               <span class="hidden sm:inline">Rezepte</span>
             </button>
+            <div class="flex">
+              <button @click="openGenerateDialog"
+                :class="[
+                  'flex justify-center items-center gap-2 bg-primary-600 hover:bg-primary-700 px-4 py-2 font-medium text-white text-sm transition-colors',
+                  store.selectedDateRange ? 'rounded-l-lg' : 'rounded-lg'
+                ]">
+                <Sparkles class="w-4 h-4" />
+                <span>{{ generateButtonText }}</span>
+              </button>
+              <button
+                v-if="store.selectedDateRange"
+                @click="clearRangeSelection"
+                class="flex justify-center items-center bg-primary-600 hover:bg-primary-700 px-2 py-2 border-l border-primary-500 rounded-r-lg text-white text-sm transition-colors"
+                title="Auswahl aufheben">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -111,20 +128,6 @@
       @recipe-drag-start="onRecipeDragStart"
       @recipe-drag-end="onRecipeDragEnd"
     />
-
-  <!-- Floating Action Button für Generierung -->
-  <Transition name="fab">
-    <div v-if="store.selectedDateRange && !store.generating" class="z-40 fixed bottom-6 right-6">
-      <button @click="openGenerateDialog"
-        class="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 shadow-lg hover:shadow-xl px-5 py-3 rounded-full font-medium text-white text-sm transition-all">
-        <Sparkles class="w-4 h-4" />
-        <span>{{ generateButtonText }}</span>
-        <button @click.stop="clearRangeSelection" class="ml-1 hover:bg-primary-500 p-1 rounded-full transition-colors">
-          <X class="w-3.5 h-3.5" />
-        </button>
-      </button>
-    </div>
-  </Transition>
 
   <!-- Day Detail Drawer -->
   <DayDetailDrawer
@@ -401,7 +404,7 @@ const selectedRangeDayCount = computed(() => {
 });
 
 const generateButtonText = computed(() => {
-  if (!store.selectedDateRange) return '';
+  if (!store.selectedDateRange) return 'Plan generieren';
   const count = selectedRangeDayCount.value;
   const dayLabel = count === 1 ? 'Tag' : 'Tage';
   // Während der Selektion: zeige auch das Enddatum als Vorschau
@@ -885,16 +888,6 @@ function addDays(dateStr, days) {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-.fab-enter-active,
-.fab-leave-active {
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.fab-enter-from,
-.fab-leave-to {
-  opacity: 0;
-  transform: translateY(20px) scale(0.9);
 }
 
 .fade-enter-active,
