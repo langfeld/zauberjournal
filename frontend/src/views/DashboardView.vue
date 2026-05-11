@@ -325,7 +325,8 @@ const todayMeals = computed(() => {
 });
 
 // Aktueller Wochenplan – immer Mo–So anzeigen, basierend auf der
-// Woche des geladenen Plans. Rezepte werden per day_of_week zugeordnet.
+// Woche des geladenen Plans. Rezepte werden per plan_date zugeordnet
+// (robuster als day_of_week, da plan_date das konkrete Datum ist).
 const weekPlanDays = computed(() => {
   if (!mealPlanStore.currentPlan?.entries?.length) return [];
 
@@ -346,9 +347,14 @@ const weekPlanDays = computed(() => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  function formatDateLocal(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
+    const dateKey = formatDateLocal(d);
 
     const isToday = d.getFullYear() === today.getFullYear() &&
                     d.getMonth() === today.getMonth() &&
@@ -359,7 +365,7 @@ const weekPlanDays = computed(() => {
       dayName: dayNames[i],
       dateStr: `${d.getDate()}. ${monthNames[d.getMonth()]}`,
       isToday,
-      meals: plan.entries.filter(e => e.day_of_week === i),
+      meals: plan.entries.filter(e => e.plan_date === dateKey),
     };
   });
 });
