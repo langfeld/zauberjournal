@@ -109,7 +109,10 @@
       </div>
 
       <div v-if="weekPlanDays.length" class="overflow-x-auto -mx-6 px-6">
-        <div class="gap-2 grid grid-cols-7 min-w-[640px]">
+        <div
+          class="gap-2 grid min-w-[640px]"
+          :style="{ gridTemplateColumns: `repeat(${weekPlanDays.length}, minmax(0, 1fr))` }"
+        >
           <div
             v-for="day in weekPlanDays"
             :key="day.dayOfWeek"
@@ -321,31 +324,45 @@ const todayMeals = computed(() => {
   return mealPlanStore.currentPlan.entries.filter(e => e.day_of_week === dayOfWeek);
 });
 
-// Aktueller Wochenplan (7-Tage-Übersicht)
+// Aktueller Wochenplan – Tage aus dem Plan-Zeitraum berechnen,
+// nicht aus dem heutigen Datum. So passen die Rezepte auch bei
+// Plänen, die nicht in der aktuellen Woche liegen.
 const weekPlanDays = computed(() => {
   if (!mealPlanStore.currentPlan?.entries?.length) return [];
 
-  const today = new Date();
-  const jsDay = today.getDay(); // 0=So, 1=Mo…
-  const todayIdx = jsDay === 0 ? 6 : jsDay - 1; // 0=Mo…6=So
+  const plan = mealPlanStore.currentPlan;
+  const startStr = plan.start_date || plan.week_start;
+  const endStr = plan.end_date;
+  if (!startStr) return [];
 
   const dayNames = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
   const monthNames = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - todayIdx);
+  const start = new Date(startStr + 'T12:00:00');
+  const end = endStr ? new Date(endStr + 'T12:00:00') : new Date(start.getTime() + 6 * 86400000);
 
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return {
-      dayOfWeek: i,
-      dayName: dayNames[i],
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const days = [];
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const jsDay = d.getDay(); // 0=So, 1=Mo…
+    const dayOfWeek = jsDay === 0 ? 6 : jsDay - 1; // 0=Mo…6=So
+
+    const isToday = d.getFullYear() === today.getFullYear() &&
+                    d.getMonth() === today.getMonth() &&
+                    d.getDate() === today.getDate();
+
+    days.push({
+      dayOfWeek,
+      dayName: dayNames[dayOfWeek],
       dateStr: `${d.getDate()}. ${monthNames[d.getMonth()]}`,
-      isToday: i === todayIdx,
-      meals: mealPlanStore.currentPlan.entries.filter(e => e.day_of_week === i),
-    };
-  });
+      isToday,
+      meals: plan.entries.filter(e => e.day_of_week === dayOfWeek),
+    });
+  }
+
+  return days;
 });
 
 // Schnellaktionen
