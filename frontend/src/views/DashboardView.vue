@@ -66,7 +66,7 @@
         </div>
         <div v-else class="py-8 text-stone-400 text-center">
           <Calendar class="opacity-50 mx-auto mb-2 w-10 h-10" />
-          <p class="text-sm">Kein Plan für heute.</p>
+          <p class="text-sm">Kein Rezept für heute.</p>
           <router-link to="/mealplan" class="text-primary-600 dark:text-primary-400 text-sm hover:underline">
             Wochenplan erstellen →
           </router-link>
