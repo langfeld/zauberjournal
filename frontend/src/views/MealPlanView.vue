@@ -548,10 +548,21 @@ function openGenerateDialog() {
 
 async function doGenerate(options) {
   try {
-    await store.generatePlan(options);
+    const result = await store.generatePlan(options);
     store.clearSelectedDateRange();
     showGenerateDialog.value = false;
-    store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
+    await store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
+
+    // Neuen Plan direkt im Popup öffnen, damit der Nutzer die
+    // generierten Rezepte sofort sieht und bearbeiten / tauschen kann.
+    // Kurze Verzögerung, damit der GenerateDialog seine Leave-Transition
+    // (200ms) erst beendet – verhindert den weißen Flash beim Übergang.
+    if (result?.plan) {
+      selectedPlan.value = result.plan;
+      setTimeout(() => {
+        showPlanModal.value = true;
+      }, 200);
+    }
   } catch (err) {
     showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Generieren', variant: 'warning' });
   }

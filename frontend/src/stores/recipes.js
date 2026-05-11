@@ -31,7 +31,14 @@ export const useRecipesStore = defineStore('recipes', () => {
   const totalRecipes = computed(() => recipes.value.length);
   const favoriteRecipes = computed(() => recipes.value.filter(r => r.is_favorite));
   const recentRecipes = computed(() =>
-    [...recipes.value].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5)
+    [...recipes.value]
+      .sort((a, b) => {
+        if (!a.last_cooked_at && !b.last_cooked_at) return 0;
+        if (!a.last_cooked_at) return 1;
+        if (!b.last_cooked_at) return -1;
+        return new Date(b.last_cooked_at) - new Date(a.last_cooked_at);
+      })
+      .slice(0, 5)
   );
 
   /**
