@@ -96,6 +96,93 @@
       </div>
     </div>
 
+    <!-- Aktueller Wochenplan -->
+    <div class="bg-white dark:bg-stone-900 p-6 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="flex items-center gap-2 font-semibold text-stone-800 dark:text-stone-100 text-lg">
+          <CalendarDays class="w-5 h-5 text-primary-500" />
+          Aktueller Wochenplan
+        </h3>
+        <router-link to="/mealplan" class="text-primary-600 dark:text-primary-400 text-sm hover:underline">
+          Zum Wochenplan →
+        </router-link>
+      </div>
+
+      <div v-if="weekPlanDays.length" class="overflow-x-auto -mx-6 px-6">
+        <div class="gap-2 grid grid-cols-7 min-w-[640px]">
+          <div
+            v-for="day in weekPlanDays"
+            :key="day.dayOfWeek"
+            class="flex flex-col"
+          >
+            <div
+              class="mb-2 py-2 rounded-lg text-center"
+              :class="day.isToday
+                ? 'bg-primary-100 dark:bg-primary-900/40'
+                : 'bg-stone-50 dark:bg-stone-800/50'"
+            >
+              <p
+                class="text-xs font-medium"
+                :class="day.isToday ? 'text-primary-700 dark:text-primary-300' : 'text-stone-500 dark:text-stone-400'"
+              >
+                {{ day.dayName }}
+              </p>
+              <p
+                class="text-sm font-bold"
+                :class="day.isToday ? 'text-primary-600 dark:text-primary-400' : 'text-stone-700 dark:text-stone-300'"
+              >
+                {{ day.dateStr }}
+              </p>
+            </div>
+
+            <div class="flex-1 space-y-1.5 min-h-[60px]">
+              <router-link
+                v-for="meal in day.meals"
+                :key="meal.id"
+                :to="`/recipes/${meal.recipe_id}`"
+                class="group block"
+              >
+                <div class="relative bg-stone-100 dark:bg-stone-800 rounded-lg aspect-[4/3] overflow-hidden">
+                  <img
+                    v-if="meal.image_url"
+                    :src="meal.image_url"
+                    :alt="meal.recipe_title"
+                    class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    loading="lazy"
+                  />
+                  <div v-else class="flex justify-center items-center w-full h-full text-lg">
+                    {{ meal.category_icon || '🍽️' }}
+                  </div>
+                  <div
+                    v-if="meal.is_cooked"
+                    class="absolute top-1 right-1 bg-accent-500/90 rounded-full w-4 h-4 flex items-center justify-center"
+                    title="Bereits gekocht"
+                  >
+                    <span class="text-[8px] text-white font-bold">✓</span>
+                  </div>
+                </div>
+                <p class="mt-0.5 text-[10px] text-stone-600 dark:text-stone-400 truncate group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
+                  {{ meal.recipe_title }}
+                </p>
+              </router-link>
+
+              <p v-if="!day.meals.length" class="text-[10px] text-stone-300 dark:text-stone-600 text-center py-4">
+                –
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="py-8 text-stone-400 text-center">
+        <CalendarDays class="opacity-50 mx-auto mb-2 w-10 h-10" />
+        <p class="text-sm">Kein aktueller Wochenplan.</p>
+        <router-link to="/mealplan?generate=true" class="text-primary-600 dark:text-primary-400 text-sm hover:underline">
+          Wochenplan erstellen →
+        </router-link>
+      </div>
+    </div>
+
     <!-- Haushalt-Aktivitäts-Feed -->
     <div v-if="householdStore.isInHousehold" class="bg-white dark:bg-stone-900 p-6 border border-stone-200 dark:border-stone-800 rounded-xl">
       <h3 class="flex items-center gap-2 mb-4 font-semibold text-stone-800 dark:text-stone-100 text-lg">
@@ -175,7 +262,7 @@ import { usePantryStore } from '@/stores/pantry.js';
 import { useHouseholdStore } from '@/stores/household.js';
 import { apiRaw } from '@/composables/useApi.js';
 import {
-  Calendar, Zap, History, BookOpen, Sparkles,
+  Calendar, CalendarDays, Zap, History, BookOpen, Sparkles,
   CalendarPlus, ShoppingCart, Star, Warehouse, Users,
 } from 'lucide-vue-next';
 import StatCard from '@/components/dashboard/StatCard.vue';
@@ -232,6 +319,33 @@ const todayMeals = computed(() => {
   // JS: 0=So, unsere DB: 0=Mo -> Umrechnung
   const dayOfWeek = today === 0 ? 6 : today - 1;
   return mealPlanStore.currentPlan.entries.filter(e => e.day_of_week === dayOfWeek);
+});
+
+// Aktueller Wochenplan (7-Tage-Übersicht)
+const weekPlanDays = computed(() => {
+  if (!mealPlanStore.currentPlan?.entries?.length) return [];
+
+  const today = new Date();
+  const jsDay = today.getDay(); // 0=So, 1=Mo…
+  const todayIdx = jsDay === 0 ? 6 : jsDay - 1; // 0=Mo…6=So
+
+  const dayNames = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  const monthNames = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - todayIdx);
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return {
+      dayOfWeek: i,
+      dayName: dayNames[i],
+      dateStr: `${d.getDate()}. ${monthNames[d.getMonth()]}`,
+      isToday: i === todayIdx,
+      meals: mealPlanStore.currentPlan.entries.filter(e => e.day_of_week === i),
+    };
+  });
 });
 
 // Schnellaktionen
