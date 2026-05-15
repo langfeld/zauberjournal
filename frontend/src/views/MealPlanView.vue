@@ -683,6 +683,8 @@ async function removeEntry(entry) {
 async function toggleCooked(entry) {
   try {
     await store.markCooked(entry.meal_plan_id, entry.id);
+    // Kalenderdaten neu laden, damit das Häkchen sofort sichtbar ist
+    await store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
   } catch (err) {
     // silent
   }

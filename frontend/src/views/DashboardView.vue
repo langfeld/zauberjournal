@@ -98,14 +98,28 @@
 
     <!-- Aktueller Wochenplan -->
     <div class="bg-white dark:bg-stone-900 p-6 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden">
-      <div class="flex items-center justify-between mb-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h3 class="flex items-center gap-2 font-semibold text-stone-800 dark:text-stone-100 text-lg">
           <CalendarDays class="w-5 h-5 text-primary-500" />
           Aktueller Wochenplan
         </h3>
-        <router-link to="/mealplan" class="text-primary-600 dark:text-primary-400 text-sm hover:underline">
-          Zum Wochenplan →
-        </router-link>
+        <div class="flex items-center gap-3">
+          <div v-if="availablePlans.length > 1" class="relative">
+            <select
+              :value="mealPlanStore.currentPlan?.id ?? ''"
+              @change="switchPlan($event.target.value)"
+              class="bg-stone-50 dark:bg-stone-800 appearance-none border border-stone-300 dark:border-stone-600 rounded-lg pl-3 pr-9 py-1.5 text-xs text-stone-700 dark:text-stone-200 outline-none focus:border-primary-400 cursor-pointer"
+            >
+              <option v-for="plan in availablePlans" :key="plan.id" :value="plan.id">
+                {{ planLabel(plan) }}
+              </option>
+            </select>
+            <ChevronDown class="top-1/2 right-2.5 absolute w-3.5 h-3.5 text-stone-400 -translate-y-1/2 pointer-events-none" />
+          </div>
+          <router-link to="/mealplan" class="text-primary-600 dark:text-primary-400 text-sm hover:underline">
+            Zum Wochenplan →
+          </router-link>
+        </div>
       </div>
 
       <div v-if="weekPlanDays.length" class="overflow-x-auto -mx-6 px-6">
@@ -158,10 +172,10 @@
                   </div>
                   <div
                     v-if="meal.is_cooked"
-                    class="absolute top-1 right-1 bg-accent-500/90 rounded-full w-4 h-4 flex items-center justify-center"
+                    class="absolute top-1.5 right-1.5 bg-accent-500/90 backdrop-blur-sm rounded-full w-5 h-5 flex items-center justify-center shadow-sm"
                     title="Bereits gekocht"
                   >
-                    <span class="text-[8px] text-white font-bold">✓</span>
+                    <span class="text-[10px] text-white font-bold leading-none">✓</span>
                   </div>
                 </div>
                 <p class="mt-0.5 text-[10px] text-stone-600 dark:text-stone-400 truncate group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
@@ -267,6 +281,7 @@ import { apiRaw } from '@/composables/useApi.js';
 import {
   Calendar, CalendarDays, Zap, History, BookOpen, Sparkles,
   CalendarPlus, ShoppingCart, Star, Warehouse, Users,
+  ChevronDown,
 } from 'lucide-vue-next';
 import StatCard from '@/components/dashboard/StatCard.vue';
 
@@ -280,6 +295,35 @@ const householdStore = useHouseholdStore();
 // Aktivitäts-Feed
 const feedEvents = ref([]);
 const feedLoading = ref(false);
+
+// Verfügbare Wochenpläne für Dropdown
+const availablePlans = ref([]);
+
+function planLabel(plan) {
+  const start = plan.start_date || plan.week_start;
+  if (!start) return 'Unbenannter Plan';
+  const d = new Date(start + 'T12:00:00');
+  const kw = getCalendarWeek(d);
+  const endStr = plan.end_date
+    ? ' – ' + new Date(plan.end_date + 'T12:00:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })
+    : '';
+  return `KW ${kw}: ${d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })}${endStr}`;
+}
+
+function getCalendarWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+async function switchPlan(planId) {
+  if (!planId) return;
+  try {
+    await mealPlanStore.fetchPlanById(planId);
+  } catch { /* silent */ }
+}
 
 function formatRelativeTime(ts) {
   if (!ts) return '';
@@ -385,10 +429,13 @@ onMounted(async () => {
     recipesStore.fetchRecipes(),
     recipesStore.fetchCategories(),
     mealPlanStore.fetchCurrentPlan(),
+    mealPlanStore.fetchAvailableWeeks(),
     shoppingStore.fetchActiveList(),
     pantryStore.fetchItems(),
     fetchDashboardFeed(),
   ]);
+
+  availablePlans.value = mealPlanStore.availableWeeks || [];
 
   // Fallback: Wenn kein Plan für die aktuelle Woche existiert,
   // suche unter allen Plänen denjenigen, dessen Zeitraum am
@@ -416,6 +463,9 @@ onMounted(async () => {
         if (best) {
           await mealPlanStore.fetchPlanById(best.id);
         }
+      }
+      if (!availablePlans.value.length && plans?.length) {
+        availablePlans.value = plans;
       }
     } catch { /* silent */ }
   }
