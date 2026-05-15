@@ -98,23 +98,54 @@
 
     <!-- Aktueller Wochenplan -->
     <div class="bg-white dark:bg-stone-900 p-6 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden">
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 mb-4">
         <h3 class="flex items-center gap-2 font-semibold text-stone-800 dark:text-stone-100 text-lg">
           <CalendarDays class="w-5 h-5 text-primary-500" />
           Aktueller Wochenplan
         </h3>
-        <div class="flex items-center gap-3">
-          <div v-if="availablePlans.length > 1" class="relative">
-            <select
-              :value="mealPlanStore.currentPlan?.id ?? ''"
-              @change="switchPlan($event.target.value)"
-              class="bg-stone-50 dark:bg-stone-800 appearance-none border border-stone-300 dark:border-stone-600 rounded-lg pl-3 pr-9 py-1.5 text-xs text-stone-700 dark:text-stone-200 outline-none focus:border-primary-400 cursor-pointer"
+        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+          <!-- Plan-Dropdown -->
+          <div v-if="availablePlans.length > 1" class="relative w-full sm:w-auto" ref="planDropdownRef">
+            <button
+              @click="showPlanDropdown = !showPlanDropdown"
+              class="flex items-center justify-between gap-2 bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-700 rounded-lg px-3 py-1.5 text-xs text-stone-700 dark:text-stone-200 transition-colors cursor-pointer w-full sm:w-auto"
             >
-              <option v-for="plan in availablePlans" :key="plan.id" :value="plan.id">
-                {{ planLabel(plan) }}
-              </option>
-            </select>
-            <ChevronDown class="top-1/2 right-2.5 absolute w-3.5 h-3.5 text-stone-400 -translate-y-1/2 pointer-events-none" />
+              <span class="font-medium truncate">{{ currentPlanLabel }}</span>
+              <ChevronDown class="w-3.5 h-3.5 text-stone-400 shrink-0" :class="showPlanDropdown ? 'rotate-180' : ''" />
+            </button>
+            <div
+              v-if="showPlanDropdown"
+              class="absolute left-0 sm:right-0 sm:left-auto top-full mt-1 bg-white dark:bg-stone-900 shadow-lg border border-stone-200 dark:border-stone-700 rounded-xl py-1 z-50 min-w-[240px] max-h-60 overflow-y-auto"
+            >
+              <button
+                v-for="plan in availablePlans"
+                :key="plan.id"
+                @click="switchPlan(plan.id)"
+                class="flex items-center gap-2.5 w-full px-3 py-2 text-left transition-colors"
+                :class="mealPlanStore.currentPlan?.id === plan.id
+                  ? 'bg-primary-50 dark:bg-primary-900/30'
+                  : 'hover:bg-stone-50 dark:hover:bg-stone-700/50'"
+              >
+                <!-- Rezept-Anzahl Badge -->
+                <div class="flex justify-center items-center rounded-md w-7 h-7 font-bold text-[10px] shrink-0"
+                  :class="mealPlanStore.currentPlan?.id === plan.id
+                    ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400'
+                    : 'bg-stone-100 dark:bg-stone-700 text-stone-500 dark:text-stone-400'">
+                  {{ plan.meal_count || plan.entry_count || 0 }}
+                </div>
+                <!-- Datum + Info -->
+                <div class="min-w-0 flex-1">
+                  <div class="font-medium text-xs truncate" :class="mealPlanStore.currentPlan?.id === plan.id ? 'text-primary-700 dark:text-primary-300' : 'text-stone-700 dark:text-stone-200'">
+                    {{ planLabel(plan) }}
+                  </div>
+                  <div class="text-[10px] text-stone-400 dark:text-stone-500">
+                    {{ plan.meal_count || plan.entry_count || 0 }} Rezepte
+                  </div>
+                </div>
+                <!-- Lock-Badge -->
+                <Lock v-if="plan.is_locked" class="w-3 h-3 text-emerald-500 shrink-0" title="Plan fixiert" />
+              </button>
+            </div>
           </div>
           <router-link to="/mealplan" class="text-primary-600 dark:text-primary-400 text-sm hover:underline">
             Zum Wochenplan →
@@ -270,7 +301,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useAuthStore } from '@/stores/auth.js';
 import { useRecipesStore } from '@/stores/recipes.js';
 import { useMealPlanStore } from '@/stores/mealplan.js';
@@ -281,7 +312,7 @@ import { apiRaw } from '@/composables/useApi.js';
 import {
   Calendar, CalendarDays, Zap, History, BookOpen, Sparkles,
   CalendarPlus, ShoppingCart, Star, Warehouse, Users,
-  ChevronDown,
+  ChevronDown, Lock,
 } from 'lucide-vue-next';
 import StatCard from '@/components/dashboard/StatCard.vue';
 
@@ -298,6 +329,21 @@ const feedLoading = ref(false);
 
 // Verfügbare Wochenpläne für Dropdown
 const availablePlans = ref([]);
+const showPlanDropdown = ref(false);
+const planDropdownRef = ref(null);
+
+const currentPlanLabel = computed(() => {
+  const plan = mealPlanStore.currentPlan;
+  if (!plan) return 'Kein Plan';
+  return planLabel(plan);
+});
+
+// Click-Outside: Dropdown schliessen
+function onDocumentClick(event) {
+  if (planDropdownRef.value && !planDropdownRef.value.contains(event.target)) {
+    showPlanDropdown.value = false;
+  }
+}
 
 function planLabel(plan) {
   const start = plan.start_date || plan.week_start;
@@ -320,6 +366,7 @@ function getCalendarWeek(date) {
 
 async function switchPlan(planId) {
   if (!planId) return;
+  showPlanDropdown.value = false;
   try {
     await mealPlanStore.fetchPlanById(planId);
   } catch { /* silent */ }
@@ -424,6 +471,8 @@ const quickActions = [
 
 // Daten beim Laden der Seite abrufen
 onMounted(async () => {
+  document.addEventListener('click', onDocumentClick);
+
   // allSettled statt all: Dashboard lädt auch wenn einzelne APIs fehlschlagen
   await Promise.allSettled([
     recipesStore.fetchRecipes(),
@@ -477,4 +526,8 @@ async function markMealCooked(meal) {
     await mealPlanStore.fetchPlanById(mealPlanStore.currentPlan.id);
   }
 }
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick);
+});
 </script>

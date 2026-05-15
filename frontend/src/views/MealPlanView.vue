@@ -29,10 +29,10 @@
               <BookOpen class="w-4 h-4" />
               <span class="hidden sm:inline">Rezepte</span>
             </button>
-            <div class="flex">
+            <div class="flex w-full sm:w-auto">
               <button @click="openGenerateDialog"
                 :class="[
-                  'flex justify-center items-center gap-2 bg-primary-600 hover:bg-primary-700 px-4 py-2 font-medium text-white text-sm transition-colors',
+                  'flex justify-center items-center gap-2 bg-primary-600 hover:bg-primary-700 px-4 py-2 font-medium text-white text-sm transition-colors w-full sm:w-auto',
                   store.selectedDateRange ? 'rounded-l-lg' : 'rounded-lg'
                 ]">
                 <Sparkles class="w-4 h-4" />
