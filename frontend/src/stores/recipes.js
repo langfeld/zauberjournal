@@ -47,6 +47,8 @@ export const useRecipesStore = defineStore('recipes', () => {
    * Hier werden sie nach Name zusammengeführt (eigene bevorzugt, recipe_count addiert).
    * SettingsView nutzt stattdessen `categories` direkt für die volle Verwaltung.
    */
+  const authStore = useAuthStore();
+
   const visibleCategories = computed(() => {
     const all = categories.value;
     if (!all.length) return all;
@@ -54,6 +56,7 @@ export const useRecipesStore = defineStore('recipes', () => {
     const hasHousehold = all.some(c => c.household_id);
     if (!hasHousehold) return all;
 
+    const currentUserId = authStore.user?.id;
     const deduped = new Map();
     for (const cat of all) {
       const key = cat.name.toLowerCase().trim();
@@ -62,9 +65,10 @@ export const useRecipesStore = defineStore('recipes', () => {
       } else {
         const existing = deduped.get(key);
         existing.recipe_count = (existing.recipe_count || 0) + (cat.recipe_count || 0);
-        // Eigene Kategorie bevorzugen (niedrigere user_id = wahrscheinlich eigene)
-        // Da wir die Auth-Info hier nicht haben, bevorzugen wir die mit niedrigerer ID
-        // (die erste im Array, die der Server schon nach user_id sortiert hat)
+        // Eigene Kategorie bevorzugen (wie Backend getMealTimeCategories)
+        if (cat.user_id === currentUserId && existing.user_id !== currentUserId) {
+          deduped.set(key, { ...cat, recipe_count: existing.recipe_count });
+        }
       }
     }
     return [...deduped.values()];

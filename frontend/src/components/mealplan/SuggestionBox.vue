@@ -362,8 +362,10 @@ function openRecipe() {
 
 function getDaySlotStatus(dayIdx, categoryId) {
   if (!props.currentPlan?.entries) return 'free';
+  const categoryName = dayPickerMealTypes.value.find(mt => mt.id === categoryId)?.name;
+  if (!categoryName) return 'free';
   return props.currentPlan.entries.some(
-    e => e.day_of_week === dayIdx && e.category_id === categoryId
+    e => e.day_of_week === dayIdx && e.category_name === categoryName
   ) ? 'occupied' : 'free';
 }
 
