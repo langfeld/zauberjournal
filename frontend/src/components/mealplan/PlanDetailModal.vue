@@ -78,7 +78,7 @@
 
                     <!-- Meta: Portionen -->
                     <div class="flex items-center gap-2 mt-1">
-                      <button @click="$emit('update-servings', entry)" class="flex items-center gap-1 text-xs text-stone-500 dark:text-stone-400 cursor-pointer hover:text-stone-700 dark:hover:text-stone-200 transition-colors">
+                      <button @click="$emit('update-servings', entry, $event)" class="flex items-center gap-1 text-xs text-stone-500 dark:text-stone-400 cursor-pointer hover:text-stone-700 dark:hover:text-stone-200 transition-colors">
                         <Users class="w-3 h-3" />
                         {{ entry.servings }} Port.
                       </button>
