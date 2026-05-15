@@ -823,19 +823,31 @@ async function onDropDay(event, dateStr) {
   }
 }
 
+function getDefaultServings() {
+  try {
+    const saved = localStorage.getItem('zauberjournal-generate-settings');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.personCount && parsed.personCount >= 1) return parsed.personCount;
+    }
+  } catch { /* ignore */ }
+  return 4;
+}
+
 async function onSlotSelected(slot) {
   showSlotSelect.value = false;
   if (!pendingDropRecipe.value) return;
   const { recipeId, dateStr, hasPlan, plan } = pendingDropRecipe.value;
   const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
+  const servings = getDefaultServings();
   try {
     if (hasPlan && plan) {
       // In bestehenden Plan einfügen
       const planWeekStart = plan.start_date || plan.week_start;
-      await store.addRecipeToPlan(recipeId, dayIdx, slot.id, planWeekStart, 4, dateStr);
+      await store.addRecipeToPlan(recipeId, dayIdx, slot.id, planWeekStart, servings, dateStr);
     } else {
       // 1-Tages-Plan erstellen
-      await store.addRecipeToPlan(recipeId, dayIdx, slot.id, dateStr, 4, dateStr, dateStr, dateStr);
+      await store.addRecipeToPlan(recipeId, dayIdx, slot.id, dateStr, servings, dateStr, dateStr, dateStr);
     }
     store.fetchMonthEntries(calendarYear.value, calendarMonth.value);
   } catch (err) {
