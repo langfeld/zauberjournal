@@ -158,72 +158,98 @@
         </div>
       </div>
 
-      <div v-if="weekPlanDays.length" class="overflow-x-auto -mx-6 px-6">
-        <div
-          class="gap-2 grid min-w-160"
-          :style="{ gridTemplateColumns: `repeat(${weekPlanDays.length}, minmax(0, 1fr))` }"
-        >
-          <div
-            v-for="day in weekPlanDays"
-            :key="day.dayOfWeek"
-            class="flex flex-col"
+      <div v-if="weekPlanDays.length" class="relative">
+        <!-- Desktop: Pfeile -->
+        <div class="relative">
+          <button
+            v-if="weekPlanDays.length > 7"
+            @click="currentSlide = Math.max(0, currentSlide - 1)"
+            :disabled="currentSlide === 0"
+            class="hidden sm:flex absolute -left-2 top-1/2 -translate-y-1/2 z-10 items-center justify-center bg-white dark:bg-stone-800 shadow-md hover:shadow-lg disabled:opacity-0 disabled:pointer-events-none border border-stone-200 dark:border-stone-700 rounded-full w-8 h-8 text-stone-600 dark:text-stone-300 transition-all cursor-pointer"
           >
+            <ChevronLeft class="w-4 h-4" />
+          </button>
+
+          <!-- Mobile: horizontal scroll (alle Tage), Desktop: Grid (7 Tage) -->
+          <div class="flex sm:grid gap-2 overflow-x-auto sm:overflow-visible snap-x snap-mandatory sm:snap-none pb-1 sm:pb-0 sm:grid-cols-7 px-1 sm:px-2 -mx-2 sm:mx-0">
             <div
-              class="mb-2 py-2 rounded-lg text-center"
-              :class="day.isToday
-                ? 'bg-primary-100 dark:bg-primary-900/40'
-                : 'bg-stone-50 dark:bg-stone-800/50'"
+              v-for="day in visibleDays"
+              :key="day.dayOfWeek"
+              class="snap-start shrink-0 w-[120px] sm:w-auto sm:shrink flex flex-col"
             >
-              <p
-                class="text-xs font-medium"
-                :class="day.isToday ? 'text-primary-700 dark:text-primary-300' : 'text-stone-500 dark:text-stone-400'"
+              <div
+                class="mb-2 py-2 rounded-lg text-center"
+                :class="day.isToday
+                  ? 'bg-primary-100 dark:bg-primary-900/40'
+                  : 'bg-stone-50 dark:bg-stone-800/50'"
               >
-                {{ day.dayName }}
-              </p>
-              <p
-                class="text-sm font-bold"
-                :class="day.isToday ? 'text-primary-600 dark:text-primary-400' : 'text-stone-700 dark:text-stone-300'"
-              >
-                {{ day.dateStr }}
-              </p>
-            </div>
-
-            <div class="flex-1 space-y-1.5 min-h-[60px]">
-              <router-link
-                v-for="meal in day.meals"
-                :key="meal.id"
-                :to="`/recipes/${meal.recipe_id}`"
-                class="group block"
-              >
-                <div class="relative bg-stone-100 dark:bg-stone-800 rounded-lg aspect-[4/3] overflow-hidden">
-                  <img
-                    v-if="meal.image_url"
-                    :src="meal.image_url"
-                    :alt="meal.recipe_title"
-                    class="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    loading="lazy"
-                  />
-                  <div v-else class="flex justify-center items-center w-full h-full text-lg">
-                    {{ meal.category_icon || '🍽️' }}
-                  </div>
-                  <div
-                    v-if="meal.is_cooked"
-                    class="absolute top-1.5 right-1.5 bg-accent-500/90 backdrop-blur-sm rounded-full w-5 h-5 flex items-center justify-center shadow-sm"
-                    title="Bereits gekocht"
-                  >
-                    <span class="text-[10px] text-white font-bold leading-none">✓</span>
-                  </div>
-                </div>
-                <p class="mt-0.5 text-[10px] text-stone-600 dark:text-stone-400 truncate group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
-                  {{ meal.recipe_title }}
+                <p
+                  class="text-xs font-medium"
+                  :class="day.isToday ? 'text-primary-700 dark:text-primary-300' : 'text-stone-500 dark:text-stone-400'"
+                >
+                  {{ day.dayName }}
                 </p>
-              </router-link>
+                <p
+                  class="text-sm font-bold"
+                  :class="day.isToday ? 'text-primary-600 dark:text-primary-400' : 'text-stone-700 dark:text-stone-300'"
+                >
+                  {{ day.dateStr }}
+                </p>
+              </div>
 
-              <p v-if="!day.meals.length" class="text-[10px] text-stone-300 dark:text-stone-600 text-center py-4">
-                –
-              </p>
+              <div class="flex-1 space-y-1.5 min-h-[60px]">
+                <router-link
+                  v-for="meal in day.meals"
+                  :key="meal.id"
+                  :to="`/recipes/${meal.recipe_id}`"
+                  class="group block"
+                >
+                  <div class="relative bg-stone-100 dark:bg-stone-800 rounded-lg aspect-[4/3] overflow-hidden">
+                    <img
+                      v-if="meal.image_url"
+                      :src="meal.image_url"
+                      :alt="meal.recipe_title"
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      loading="lazy"
+                    />
+                    <div v-else class="flex justify-center items-center w-full h-full text-lg">
+                      {{ meal.category_icon || '🍽️' }}
+                    </div>
+                    <div
+                      v-if="meal.is_cooked"
+                      class="absolute top-1.5 right-1.5 bg-accent-500/90 backdrop-blur-sm rounded-full w-5 h-5 flex items-center justify-center shadow-sm"
+                      title="Bereits gekocht"
+                    >
+                      <span class="text-[10px] text-white font-bold leading-none">✓</span>
+                    </div>
+                  </div>
+                  <p class="mt-0.5 text-[10px] text-stone-600 dark:text-stone-400 truncate group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
+                    {{ meal.recipe_title }}
+                  </p>
+                </router-link>
+
+                <p v-if="!day.meals.length" class="text-[10px] text-stone-300 dark:text-stone-600 text-center py-4">
+                  –
+                </p>
+              </div>
             </div>
           </div>
+
+          <button
+            v-if="weekPlanDays.length > 7"
+            @click="currentSlide = Math.min(Math.ceil(weekPlanDays.length / 7) - 1, currentSlide + 1)"
+            :disabled="currentSlide >= Math.ceil(weekPlanDays.length / 7) - 1"
+            class="hidden sm:flex absolute -right-2 top-1/2 -translate-y-1/2 z-10 items-center justify-center bg-white dark:bg-stone-800 shadow-md hover:shadow-lg disabled:opacity-0 disabled:pointer-events-none border border-stone-200 dark:border-stone-700 rounded-full w-8 h-8 text-stone-600 dark:text-stone-300 transition-all cursor-pointer"
+          >
+            <ChevronRight class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Wochen-Indikator (nur Desktop) -->
+        <div v-if="weekPlanDays.length > 7" class="hidden sm:block text-center mt-3">
+          <span class="text-[10px] text-stone-400 dark:text-stone-500 tracking-wide">
+            WOCHE {{ currentSlide + 1 }} / {{ Math.ceil(weekPlanDays.length / 7) }}
+          </span>
         </div>
       </div>
 
@@ -402,6 +428,7 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { useWindowSize } from '@vueuse/core';
 import { useAuthStore } from '@/stores/auth.js';
 import { useRecipesStore } from '@/stores/recipes.js';
 import { useMealPlanStore } from '@/stores/mealplan.js';
@@ -412,7 +439,7 @@ import { apiRaw } from '@/composables/useApi.js';
 import {
   Calendar, CalendarDays, Zap, History, BookOpen, Sparkles,
   CalendarPlus, ShoppingCart, Star, Warehouse, Users,
-  ChevronDown, Lock, Eye, X, RefreshCw, Minus, Plus,
+  ChevronDown, ChevronLeft, ChevronRight, Lock, Eye, X, RefreshCw, Minus, Plus,
 } from 'lucide-vue-next';
 import StatCard from '@/components/dashboard/StatCard.vue';
 import PlanDetailModal from '@/components/mealplan/PlanDetailModal.vue';
@@ -437,6 +464,7 @@ const showPlanDropdown = ref(false);
 const planDropdownRef = ref(null);
 
 // Plan-Detail Modal
+const currentSlide = ref(0);
 const showPlanModal = ref(false);
 const showPlanEditModal = ref(false);
 const selectedPlan = computed(() => mealPlanStore.currentPlan);
@@ -518,6 +546,7 @@ function getCalendarWeek(date) {
 async function switchPlan(planId) {
   if (!planId) return;
   showPlanDropdown.value = false;
+  currentSlide.value = 0;
   try {
     await mealPlanStore.fetchPlanById(planId);
   } catch { /* silent */ }
@@ -566,25 +595,37 @@ const todayMeals = computed(() => {
   return mealPlanStore.currentPlan.entries.filter(e => e.day_of_week === dayOfWeek);
 });
 
-// Aktueller Wochenplan – immer Mo–So anzeigen, basierend auf der
-// Woche des geladenen Plans. Rezepte werden per plan_date zugeordnet
-// (robuster als day_of_week, da plan_date das konkrete Datum ist).
+// Aktueller Wochenplan – beginnt immer am Montag der Plan-Woche,
+// zeigt mindestens Mo–So und erweitert nach rechts, falls der Plan
+// über den Sonntag hinausgeht. Rezepte werden per plan_date zugeordnet.
 const weekPlanDays = computed(() => {
   if (!mealPlanStore.currentPlan?.entries?.length) return [];
 
   const plan = mealPlanStore.currentPlan;
   const startStr = plan.start_date || plan.week_start;
+  const endStr = plan.end_date;
   if (!startStr) return [];
 
   const dayNames = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
   const monthNames = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
-  // Montag der Woche, die den Plan-Start enthält
   const planStart = new Date(startStr + 'T12:00:00');
-  const jsDay = planStart.getDay(); // 0=So, 1=Mo…
-  const mondayOffset = jsDay === 0 ? 6 : jsDay - 1;
+  const planEnd = endStr
+    ? new Date(endStr + 'T12:00:00')
+    : new Date(planStart);
+  if (!endStr) planEnd.setDate(planStart.getDate() + 6);
+
+  // Montag der Woche, die den Plan-Start enthält
+  const jsDayStart = planStart.getDay(); // 0=So, 1=Mo…
+  const mondayOffset = jsDayStart === 0 ? 6 : jsDayStart - 1;
   const monday = new Date(planStart);
   monday.setDate(planStart.getDate() - mondayOffset);
+
+  // Sonntag der Woche, die den Plan-Ende enthält
+  const jsDayEnd = planEnd.getDay();
+  const sundayOffset = jsDayEnd === 0 ? 0 : 7 - jsDayEnd;
+  const sunday = new Date(planEnd);
+  sunday.setDate(planEnd.getDate() + sundayOffset);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -593,7 +634,10 @@ const weekPlanDays = computed(() => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  return Array.from({ length: 7 }, (_, i) => {
+  const dayCount = Math.round((sunday - monday) / 86400000) + 1;
+  if (dayCount <= 0 || dayCount > 366) return [];
+
+  return Array.from({ length: dayCount }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
     const dateKey = formatDateLocal(d);
@@ -602,14 +646,32 @@ const weekPlanDays = computed(() => {
                     d.getMonth() === today.getMonth() &&
                     d.getDate() === today.getDate();
 
+    const jsDay = d.getDay(); // 0=So, 1=Mo…
+    const dayIdx = jsDay === 0 ? 6 : jsDay - 1;
+
     return {
       dayOfWeek: i,
-      dayName: dayNames[i],
+      dayName: dayNames[dayIdx],
       dateStr: `${d.getDate()}. ${monthNames[d.getMonth()]}`,
       isToday,
       meals: plan.entries.filter(e => e.plan_date === dateKey),
     };
   });
+});
+
+const { width: windowWidth } = useWindowSize();
+const isMobile = computed(() => windowWidth.value < 640);
+
+// Sichtbare Tage: Mobile = alle Tage (horizontal scroll), Desktop = 7 pro Slide
+const visibleDays = computed(() => {
+  if (isMobile.value) return weekPlanDays.value;
+  const start = currentSlide.value * 7;
+  return weekPlanDays.value.slice(start, start + 7);
+});
+
+// Slide zurücksetzen, wenn der Plan wechselt
+watch(() => mealPlanStore.currentPlan?.id, () => {
+  currentSlide.value = 0;
 });
 
 // Schnellaktionen
