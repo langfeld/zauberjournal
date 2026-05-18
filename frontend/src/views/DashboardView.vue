@@ -147,9 +147,6 @@
               </button>
             </div>
           </div>
-          <router-link to="/mealplan" class="text-primary-600 dark:text-primary-400 text-sm hover:underline">
-            Zum Wochenplan →
-          </router-link>
         </div>
       </div>
 
