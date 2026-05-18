@@ -147,12 +147,20 @@
               </button>
             </div>
           </div>
+          <button
+            v-if="mealPlanStore.currentPlan"
+            @click="showPlanModal = true"
+            class="flex items-center gap-1.5 bg-primary-50 dark:bg-primary-900/30 hover:bg-primary-100 dark:hover:bg-primary-900 px-3 py-1.5 rounded-lg text-xs font-medium text-primary-700 dark:text-primary-300 transition-colors cursor-pointer w-full lg:w-auto border border-primary-300 dark:border-primary-700"
+          >
+            <Eye class="w-3.5 h-3.5" />
+            Plan anzeigen
+          </button>
         </div>
       </div>
 
       <div v-if="weekPlanDays.length" class="overflow-x-auto -mx-6 px-6">
         <div
-          class="gap-2 grid min-w-[640px]"
+          class="gap-2 grid min-w-160"
           :style="{ gridTemplateColumns: `repeat(${weekPlanDays.length}, minmax(0, 1fr))` }"
         >
           <div
@@ -294,11 +302,106 @@
         </router-link>
       </div>
     </div>
+
+    <!-- Plan Detail Modal -->
+    <PlanDetailModal
+      :is-open="showPlanModal"
+      :plan="selectedPlan"
+      :entries="selectedPlanEntries"
+      @close="showPlanModal = false"
+      @entry-click="goToRecipe"
+      @swap="openSwapDialog"
+      @remove="removeEntry"
+      @add-entry="onAddEntryToPlan"
+      @toggle-cooked="toggleCooked"
+      @update-servings="openServingsPopup"
+      @toggle-lock="toggleLockPlan"
+      @duplicate="duplicatePlan"
+      @shopping-list="createShoppingList"
+      @delete="confirmDeletePlan"
+      @edit="showPlanEditModal = true"
+    />
+
+    <!-- Plan Edit Modal -->
+    <PlanEditModal
+      :is-open="showPlanEditModal"
+      :plan="selectedPlan"
+      @close="showPlanEditModal = false"
+      @save="doEditPlan"
+    />
+
+    <!-- Swap Modal -->
+    <Teleport to="body">
+      <div v-if="showSwapModal" class="z-50 fixed inset-0 flex justify-center items-center p-4 pointer-events-none">
+        <div class="relative bg-white dark:bg-stone-900 shadow-2xl rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col pointer-events-auto">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-stone-200 dark:border-stone-700">
+            <h3 class="font-bold text-stone-800 dark:text-stone-100 text-lg">
+              {{ swapEntry ? 'Rezept tauschen' : 'Rezept hinzufügen' }}
+            </h3>
+            <button @click="showSwapModal = false" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-2 rounded-lg">
+              <X class="w-5 h-5 text-stone-500" />
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto p-4">
+            <div class="flex gap-2 mb-4">
+              <input v-model="swapSearch" placeholder="Rezept suchen…"
+                class="flex-1 bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-700 dark:text-stone-200" />
+            </div>
+            <div v-if="swapSuggestions.length" class="grid grid-cols-2 gap-2">
+              <div v-for="recipe in swapSuggestions" :key="recipe.id"
+                class="bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-700 rounded-lg p-3 cursor-pointer transition-colors"
+                @click="doSwap(recipe.id)">
+                <div class="aspect-video rounded-lg overflow-hidden bg-stone-200 dark:bg-stone-700 mb-2">
+                  <img v-if="recipe.image_url" :src="recipe.image_url" class="w-full h-full object-cover" />
+                  <span v-else class="flex justify-center items-center w-full h-full text-2xl">🍽️</span>
+                </div>
+                <p class="font-medium text-stone-800 dark:text-stone-100 text-sm truncate">{{ recipe.title }}</p>
+              </div>
+            </div>
+            <div v-else class="py-8 text-center text-stone-500 dark:text-stone-400 text-sm">
+              Keine Vorschläge gefunden.
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Servings Popup -->
+    <Teleport to="body">
+      <div v-if="servingsPopupEntry" class="z-50 fixed inset-0" @click.self="servingsPopupEntry = null">
+        <div class="fixed" :style="servingsPopupStyle">
+          <div class="bg-white dark:bg-stone-900 shadow-xl border border-stone-200 dark:border-stone-700 rounded-xl p-3">
+            <p class="font-medium text-stone-700 dark:text-stone-200 text-sm mb-2">Portionen</p>
+            <div class="flex items-center gap-2">
+              <button @click="updateServings(-1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg cursor-pointer">
+                <Minus class="w-4 h-4" />
+              </button>
+              <span class="font-semibold w-8 text-center">{{ servingsPopupEntry.servings }}</span>
+              <button @click="updateServings(1)" class="hover:bg-stone-100 dark:hover:bg-stone-800 p-1.5 rounded-lg cursor-pointer">
+                <Plus class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Confirm Dialog -->
+    <ConfirmDialog
+      v-model="confirmDialog.show"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :variant="confirmDialog.variant"
+      :confirm-text="confirmDialog.confirmText"
+      :show-cancel="confirmDialog.showCancel"
+      @confirm="onConfirmDialog"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.js';
 import { useRecipesStore } from '@/stores/recipes.js';
 import { useMealPlanStore } from '@/stores/mealplan.js';
@@ -309,10 +412,14 @@ import { apiRaw } from '@/composables/useApi.js';
 import {
   Calendar, CalendarDays, Zap, History, BookOpen, Sparkles,
   CalendarPlus, ShoppingCart, Star, Warehouse, Users,
-  ChevronDown, Lock,
+  ChevronDown, Lock, Eye, X, RefreshCw, Minus, Plus,
 } from 'lucide-vue-next';
 import StatCard from '@/components/dashboard/StatCard.vue';
+import PlanDetailModal from '@/components/mealplan/PlanDetailModal.vue';
+import PlanEditModal from '@/components/mealplan/PlanEditModal.vue';
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 
+const router = useRouter();
 const authStore = useAuthStore();
 const recipesStore = useRecipesStore();
 const mealPlanStore = useMealPlanStore();
@@ -328,6 +435,53 @@ const feedLoading = ref(false);
 const availablePlans = ref([]);
 const showPlanDropdown = ref(false);
 const planDropdownRef = ref(null);
+
+// Plan-Detail Modal
+const showPlanModal = ref(false);
+const showPlanEditModal = ref(false);
+const selectedPlan = computed(() => mealPlanStore.currentPlan);
+const selectedPlanEntries = computed(() => mealPlanStore.currentPlan?.entries || []);
+const mealTypes = computed(() => recipesStore.mealTimeCategories || []);
+
+// Swap Modal
+const showSwapModal = ref(false);
+const swapEntry = ref(null);
+const swapDateStr = ref('');
+const swapSearch = ref('');
+const swapSuggestions = ref([]);
+const reopenPlanAfterSwap = ref(false);
+
+// Servings Popup
+const servingsPopupEntry = ref(null);
+const servingsPopupPos = ref({ x: 0, y: 0 });
+const servingsPopupStyle = computed(() => ({
+  left: `${servingsPopupPos.value.x}px`,
+  top: `${servingsPopupPos.value.y + 20}px`,
+}));
+
+// Confirm Dialog
+const confirmDialog = ref({
+  show: false,
+  title: '',
+  message: '',
+  variant: 'danger',
+  confirmText: 'Bestätigen',
+  showCancel: true,
+  onConfirm: null,
+});
+
+function showConfirm(opts) {
+  confirmDialog.value = { show: true, showCancel: true, ...opts };
+}
+
+function showAlert(opts) {
+  confirmDialog.value = { show: true, showCancel: false, variant: 'info', confirmText: 'OK', ...opts };
+}
+
+function onConfirmDialog() {
+  confirmDialog.value.show = false;
+  if (confirmDialog.value.onConfirm) confirmDialog.value.onConfirm();
+}
 
 const currentPlanLabel = computed(() => {
   const plan = mealPlanStore.currentPlan;
@@ -523,6 +677,207 @@ async function markMealCooked(meal) {
     await mealPlanStore.fetchPlanById(mealPlanStore.currentPlan.id);
   }
 }
+
+// ── Plan Detail Modal Handler ──
+function goToRecipe(recipeId) {
+  router.push(`/recipes/${recipeId}`);
+}
+
+async function openSwapDialog(entry) {
+  swapEntry.value = entry;
+  swapSearch.value = '';
+
+  if (showPlanModal.value) {
+    showPlanModal.value = false;
+    reopenPlanAfterSwap.value = true;
+  }
+
+  showSwapModal.value = true;
+
+  const dayIdx = entry?.plan_date
+    ? (new Date(entry.plan_date + 'T12:00:00').getDay() + 6) % 7
+    : 0;
+  const data = await mealPlanStore.fetchSuggestions({
+    dayIdx,
+    categoryId: entry?.category_id,
+  });
+  swapSuggestions.value = data || [];
+}
+
+async function onAddEntryToPlan(dateStr) {
+  swapEntry.value = null;
+  swapDateStr.value = dateStr;
+  swapSearch.value = '';
+
+  if (showPlanModal.value) {
+    showPlanModal.value = false;
+    reopenPlanAfterSwap.value = true;
+  }
+
+  showSwapModal.value = true;
+
+  const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
+  const data = await mealPlanStore.fetchSuggestions({
+    dayIdx,
+    categoryId: mealTypes.value[0]?.id,
+  });
+  swapSuggestions.value = data || [];
+}
+
+async function doSwap(newRecipeId) {
+  try {
+    if (swapEntry.value) {
+      await mealPlanStore.swapRecipe(swapEntry.value.meal_plan_id, swapEntry.value.id, newRecipeId);
+    } else if (selectedPlan.value?.id && swapDateStr.value) {
+      // Neuer Eintrag für leeren Tag im Plan hinzufügen
+      const dayIdx = (new Date(swapDateStr.value + 'T12:00:00').getDay() + 6) % 7;
+      await mealPlanStore.addEntry(selectedPlan.value.id, newRecipeId, dayIdx, mealTypes.value[0]?.id, 4, swapDateStr.value);
+    }
+    showSwapModal.value = false;
+    swapEntry.value = null;
+    swapDateStr.value = '';
+
+    if (reopenPlanAfterSwap.value && selectedPlan.value) {
+      reopenPlanAfterSwap.value = false;
+      showPlanModal.value = true;
+    }
+
+    if (mealPlanStore.currentPlan?.id) {
+      await mealPlanStore.fetchPlanById(mealPlanStore.currentPlan.id);
+    }
+  } catch (err) {
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Tauschen', variant: 'warning' });
+  }
+}
+
+async function removeEntry(entry) {
+  showConfirm({
+    title: 'Mahlzeit entfernen?',
+    message: 'Diese Mahlzeit wird aus dem Plan entfernt.',
+    variant: 'warning',
+    confirmText: 'Entfernen',
+    onConfirm: async () => {
+      try {
+        await mealPlanStore.removeEntry(entry.meal_plan_id, entry.id);
+        if (mealPlanStore.currentPlan?.id) {
+          await mealPlanStore.fetchPlanById(mealPlanStore.currentPlan.id);
+        }
+      } catch (err) {
+        showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Entfernen', variant: 'warning' });
+      }
+    },
+  });
+}
+
+async function toggleCooked(entry) {
+  try {
+    await mealPlanStore.markCooked(entry.meal_plan_id, entry.id);
+    if (mealPlanStore.currentPlan?.id) {
+      await mealPlanStore.fetchPlanById(mealPlanStore.currentPlan.id);
+    }
+  } catch {
+    // silent
+  }
+}
+
+function openServingsPopup(entry, event) {
+  servingsPopupEntry.value = entry;
+  if (event) {
+    servingsPopupPos.value = { x: event.clientX, y: event.clientY };
+  }
+}
+
+async function updateServings(delta) {
+  if (!servingsPopupEntry.value) return;
+  const newServings = Math.max(1, servingsPopupEntry.value.servings + delta);
+  try {
+    await mealPlanStore.updateServings(servingsPopupEntry.value.meal_plan_id, servingsPopupEntry.value.id, newServings);
+    servingsPopupEntry.value.servings = newServings;
+  } catch {
+    // silent
+  }
+}
+
+async function toggleLockPlan(plan) {
+  try {
+    await mealPlanStore.toggleLock(plan.id);
+  } catch (err) {
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Sperren', variant: 'warning' });
+  }
+}
+
+async function duplicatePlan(plan) {
+  const target = prompt('Zieldatum (YYYY-MM-DD):', plan.start_date || plan.week_start);
+  if (!target) return;
+  try {
+    await mealPlanStore.duplicatePlan(plan.id, target);
+    if (mealPlanStore.currentPlan?.id) {
+      await mealPlanStore.fetchPlanById(mealPlanStore.currentPlan.id);
+    }
+    showPlanModal.value = false;
+    showAlert({ title: 'Dupliziert', message: 'Plan erfolgreich dupliziert.', variant: 'success', showCancel: false });
+  } catch (err) {
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Duplizieren', variant: 'warning' });
+  }
+}
+
+function createShoppingList(plan) {
+  router.push(`/shopping?planId=${plan.id}`);
+}
+
+async function confirmDeletePlan(plan) {
+  showConfirm({
+    title: 'Plan löschen?',
+    message: 'Dieser Plan und alle seine Mahlzeiten werden unwiderruflich gelöscht.',
+    variant: 'danger',
+    confirmText: 'Löschen',
+    onConfirm: async () => {
+      try {
+        await mealPlanStore.deletePlan(plan.id);
+        showPlanModal.value = false;
+        await mealPlanStore.fetchAvailableWeeks();
+        availablePlans.value = mealPlanStore.availableWeeks || [];
+      } catch (err) {
+        showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Löschen', variant: 'warning' });
+      }
+    },
+  });
+}
+
+async function doEditPlan({ startDate, endDate }) {
+  if (!selectedPlan.value) return;
+  try {
+    await mealPlanStore.updatePlan(selectedPlan.value.id, { startDate, endDate });
+    showPlanEditModal.value = false;
+    if (mealPlanStore.currentPlan?.id) {
+      await mealPlanStore.fetchPlanById(mealPlanStore.currentPlan.id);
+    }
+    showAlert({ title: 'Gespeichert', message: 'Plan erfolgreich aktualisiert.', variant: 'success', showCancel: false });
+  } catch (err) {
+    showAlert({ title: 'Fehler', message: err.message || 'Fehler beim Aktualisieren', variant: 'warning', showCancel: false });
+  }
+}
+
+// Wenn Swap-Dialog geschlossen wird und Plan-Modal sollte wieder geöffnet werden
+watch(showSwapModal, (isOpen) => {
+  if (!isOpen && reopenPlanAfterSwap.value && selectedPlan.value) {
+    reopenPlanAfterSwap.value = false;
+    showPlanModal.value = true;
+  }
+});
+
+watch(swapSearch, async (search) => {
+  if (!swapEntry.value) return;
+  const dayIdx = swapEntry.value?.plan_date
+    ? (new Date(swapEntry.value.plan_date + 'T12:00:00').getDay() + 6) % 7
+    : 0;
+  const data = await mealPlanStore.fetchSuggestions({
+    dayIdx,
+    categoryId: swapEntry.value?.category_id,
+    search: search || null,
+  });
+  swapSuggestions.value = data || [];
+});
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick);
