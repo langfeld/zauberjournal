@@ -39,6 +39,7 @@ export class RequestyProvider extends BaseAIProvider {
         ],
         temperature: options.temperature ?? 0.7,
         max_tokens: options.maxTokens ?? 4096,
+        ...(options.json ? { response_format: { type: 'json_object' } } : {}),
       }),
     });
 
@@ -86,6 +87,7 @@ export class RequestyProvider extends BaseAIProvider {
         ],
         temperature: options.temperature ?? 0.3,
         max_tokens: options.maxTokens ?? 4096,
+        ...(options.json ? { response_format: { type: 'json_object' } } : {}),
       }),
     });
 

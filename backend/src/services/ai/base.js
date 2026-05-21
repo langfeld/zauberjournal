@@ -52,7 +52,12 @@ export class BaseAIProvider {
       prompt + '\n\nAntworte ausschließlich mit validem JSON, ohne Markdown-Formatierung oder andere Zeichen.',
       { ...options, json: true }
     );
-    return this.parseJSON(response);
+    try {
+      return this.parseJSON(response);
+    } catch (err) {
+      console.error(`[AI ${this.name}] JSON-Parsing fehlgeschlagen. Vollständige KI-Antwort:\n`, response);
+      throw err;
+    }
   }
 
   /**
@@ -64,7 +69,12 @@ export class BaseAIProvider {
       image,
       { ...options, json: true }
     );
-    return this.parseJSON(response);
+    try {
+      return this.parseJSON(response);
+    } catch (err) {
+      console.error(`[AI ${this.name}] JSON-Parsing fehlgeschlagen. Vollständige KI-Antwort:\n`, response);
+      throw err;
+    }
   }
 
   /**
@@ -76,7 +86,12 @@ export class BaseAIProvider {
       images,
       { ...options, json: true }
     );
-    return this.parseJSON(response);
+    try {
+      return this.parseJSON(response);
+    } catch (err) {
+      console.error(`[AI ${this.name}] JSON-Parsing fehlgeschlagen. Vollständige KI-Antwort:\n`, response);
+      throw err;
+    }
   }
 
   /**
@@ -84,32 +99,64 @@ export class BaseAIProvider {
    * Unterstützt Markdown-Code-Blöcke und repariert abgeschnittenes JSON
    */
   parseJSON(text) {
+    if (!text || typeof text !== 'string') {
+      throw new Error(`KI-Antwort ist leer oder kein String: ${typeof text}`);
+    }
+    text = text.trim();
+    if (!text) {
+      throw new Error('KI-Antwort ist leer');
+    }
+
     // 1. Direkt versuchen
     try {
       return JSON.parse(text);
     } catch {}
 
-    // 2. Markdown-Codeblock entfernen
-    const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (jsonMatch) {
+    // 2. Alle Markdown-Codeblocks durchsuchen
+    const codeBlockMatches = [...text.matchAll(/```(?:json)?\s*\n?([\s\S]*?)\n?```/g)];
+    for (const match of codeBlockMatches) {
       try {
-        return JSON.parse(jsonMatch[1].trim());
+        return JSON.parse(match[1].trim());
       } catch {}
     }
 
-    // 3. Äußerstes JSON-Objekt oder -Array extrahieren
-    const braceMatch = text.match(/\{[\s\S]*\}/);
-    if (braceMatch) {
-      try {
-        return JSON.parse(braceMatch[0]);
-      } catch {}
-    }
+    // 3. Stack-basierte Suche nach dem ersten gültigen JSON-Objekt oder -Array
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{' || text[i] === '[') {
+        let depth = 0;
+        let inString = false;
+        let escapeNext = false;
+        const startChar = text[i];
+        const endChar = startChar === '{' ? '}' : ']';
 
-    const bracketMatch = text.match(/\[[\s\S]*\]/);
-    if (bracketMatch) {
-      try {
-        return JSON.parse(bracketMatch[0]);
-      } catch {}
+        for (let j = i; j < text.length; j++) {
+          const ch = text[j];
+          if (escapeNext) {
+            escapeNext = false;
+            continue;
+          }
+          if (ch === '\\') {
+            escapeNext = true;
+            continue;
+          }
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+          if (!inString) {
+            if (ch === startChar) depth++;
+            else if (ch === endChar) depth--;
+            if (depth === 0) {
+              const candidate = text.substring(i, j + 1);
+              try {
+                return JSON.parse(candidate);
+              } catch {
+                break;
+              }
+            }
+          }
+        }
+      }
     }
 
     // 4. Abgeschnittenes JSON reparieren (wenn max_tokens erreicht wurde)
@@ -148,7 +195,6 @@ export class BaseAIProvider {
       return JSON.parse(candidate);
     } catch {}
 
-    console.error('[AI] JSON-Parsing fehlgeschlagen. Vollständige KI-Antwort:\n', text);
     throw new Error(`Konnte kein JSON aus KI-Antwort extrahieren: ${text.substring(0, 300)}...`);
   }
 }

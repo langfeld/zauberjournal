@@ -33,6 +33,7 @@ export class OllamaProvider extends BaseAIProvider {
           { role: 'user', content: prompt },
         ],
         stream: false,
+        format: options.json ? 'json' : undefined,
         options: {
           temperature: options.temperature ?? 0.7,
         },

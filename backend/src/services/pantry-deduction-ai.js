@@ -168,6 +168,7 @@ Antworte ausschließlich mit einem JSON-Objekt:
     });
 
     if (!result || !Array.isArray(result.deductions)) {
+      console.warn(`[AI Pantry-Deduction] Ungültiges Antwortformat für "${recipeTitle}":`, result);
       errors.push('KI-Antwort enthielt kein gültiges deductions-Array');
       return { deductions: [], errors };
     }
