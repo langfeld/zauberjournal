@@ -287,68 +287,120 @@ function filterByCategory(recipes, categoryName) {
  * Höherer Score = besser geeignet.
  */
 function scoreRecipe(recipe, context) {
-  let score = 100;
+  // Gewichtete Scoring-Parameter (Multiplikatoren, 1.0 = Default)
+  const w = context.scoringWeights || {};
+  const rotationWeight = w.rotationWeight ?? 1.0;
+  const favoriteWeight = w.favoriteWeight ?? 1.0;
+  const ratingWeight = w.ratingWeight ?? 1.0;
+  const varietyWeight = w.varietyWeight ?? 1.0;
+  const difficultyWeight = w.difficultyWeight ?? 1.0;
+  const timeWeight = w.timeWeight ?? 1.0;
+  const shoppingWeight = w.shoppingWeight ?? 1.0;
+  const calorieWeight = w.calorieWeight ?? 1.0;
+
+  const breakdown = {
+    base: 100,
+    categoryMatch: 0,
+    rotation: 0,
+    rarity: 0,
+    favorite: 0,
+    rating: 0,
+    duplicate: 0,
+    categoryVariety: 0,
+    difficulty: 0,
+    time: 0,
+    ingredientOverlap: 0,
+    pantry: 0,
+    calories: 0,
+  };
+  let score = breakdown.base;
 
   // Mahlzeit-Typ-Passung wird VOR dem Scoring per Filter erledigt (siehe filterByCategory).
   // Im Score gibt es nur noch einen kleinen Bonus für perfekte Matches.
   const fitness = categoryFitness(recipe, context.categoryName || 'Mittagessen');
-  if (fitness === 'match') score += 30; // Bonus für perfekte Kategorie-Passung
+  if (fitness === 'match') {
+    breakdown.categoryMatch = 30;
+    score += breakdown.categoryMatch;
+  }
 
   // 1. Rotation: lange nicht gekocht = höherer Score (max +60)
   if (recipe.last_cooked) {
     const daysSince = Math.floor((Date.now() - new Date(recipe.last_cooked).getTime()) / 86_400_000);
-    score += Math.min(daysSince, 60);
+    breakdown.rotation = Math.round(Math.min(daysSince, 60) * rotationWeight);
   } else {
-    score += 60; // Nie gekocht → maximaler Rotationsbonus
+    breakdown.rotation = Math.round(60 * rotationWeight); // Nie gekocht → maximaler Rotationsbonus
   }
+  score += breakdown.rotation;
 
   // 2. Selten gekocht (max +20)
   if (recipe.cook_count === 0) {
-    score += 20;
+    breakdown.rarity = Math.round(20 * rotationWeight);
   } else if (recipe.cook_count <= 2) {
-    score += 10;
+    breakdown.rarity = Math.round(10 * rotationWeight);
   }
+  score += breakdown.rarity;
 
   // 3. Favoriten bevorzugen
-  if (recipe.is_favorite) score += 25;
+  if (recipe.is_favorite) {
+    breakdown.favorite = Math.round(25 * favoriteWeight);
+    score += breakdown.favorite;
+  }
 
   // 4. Gute Bewertung
-  if (recipe.avg_rating >= 4) score += 15;
-  else if (recipe.avg_rating >= 3) score += 5;
+  if (recipe.avg_rating >= 4) {
+    breakdown.rating = Math.round(15 * ratingWeight);
+  } else if (recipe.avg_rating >= 3) {
+    breakdown.rating = Math.round(5 * ratingWeight);
+  }
+  score += breakdown.rating;
 
   // 5. Duplikat-Vermeidung: schon diese Woche gewählt → praktisch ausschließen
-  if (context.usedRecipeIds.has(recipe.id)) score -= 500;
+  if (context.usedRecipeIds.has(recipe.id)) {
+    breakdown.duplicate = Math.round(-500 * varietyWeight);
+    score += breakdown.duplicate;
+  }
 
   // 6. Kategorie-Abwechslung: gleiche Kategorie wie Vortag → Malus
   if (context.previousMealCategory) {
     const cats = (recipe.categories || '').split(',').map(c => c.trim().toLowerCase());
     if (cats.some(c => c === context.previousMealCategory.toLowerCase())) {
-      score -= 30;
+      breakdown.categoryVariety = Math.round(-30 * varietyWeight);
+      score += breakdown.categoryVariety;
     }
   }
 
   // 7. Schwierigkeit vs. Wochentag
   const isWeekend = context.dayIdx >= 5; // Sa=5, So=6
   if (recipe.difficulty === 'schwer') {
-    score += isWeekend ? 20 : -25;
+    breakdown.difficulty = Math.round((isWeekend ? 20 : -25) * difficultyWeight);
   } else if (recipe.difficulty === 'einfach') {
-    score += isWeekend ? -5 : 10;
+    breakdown.difficulty = Math.round((isWeekend ? -5 : 10) * difficultyWeight);
   }
+  score += breakdown.difficulty;
 
   // 8. Zeitaufwand: unter der Woche kürzere Rezepte bevorzugen
-  if (!isWeekend && recipe.total_time > 60) score -= 15;
-  if (!isWeekend && recipe.total_time <= 30) score += 10;
+  if (!isWeekend && recipe.total_time > 60) {
+    breakdown.time -= Math.round(15 * timeWeight);
+  }
+  if (!isWeekend && recipe.total_time <= 30) {
+    breakdown.time += Math.round(10 * timeWeight);
+  }
+  score += breakdown.time;
 
   // 9. Zutaten-Überlappung mit bereits gewählten Rezepten (Einkaufsoptimierung)
   if (context.usedIngredients.size > 0) {
     const overlap = recipe.ingredientNames.filter(n => context.usedIngredients.has(n)).length;
-    score += overlap * 5;
+    breakdown.ingredientOverlap = Math.round(overlap * 5 * shoppingWeight);
+    score += breakdown.ingredientOverlap;
   }
 
   // 10. Vorräte nutzen
   for (const name of recipe.ingredientNames) {
-    if (context.pantrySet.has(name)) score += 8;
+    if (context.pantrySet.has(name)) {
+      breakdown.pantry += Math.round(8 * shoppingWeight);
+    }
   }
+  score += breakdown.pantry;
 
   // 11. Kalorien-Passung (nur wenn calorieTarget gesetzt)
   if (context.calorieTarget && context.calorieSlotTarget) {
@@ -366,18 +418,19 @@ function scoreRecipe(recipe, context) {
 
       if (deviationPct <= cfg.tolerance) {
         // Innerhalb Toleranz → voller Bonus
-        score += cfg.maxBonus;
+        breakdown.calories = Math.round(cfg.maxBonus * calorieWeight);
       } else if (deviationPct < cfg.nullPoint) {
         // Linear abfallend bis 0
         const ratio = 1 - (deviationPct - cfg.tolerance) / (cfg.nullPoint - cfg.tolerance);
-        score += Math.round(cfg.maxBonus * ratio);
+        breakdown.calories = Math.round(cfg.maxBonus * ratio * calorieWeight);
       }
       // Über nullPoint hinaus → kein Bonus (0)
+      score += breakdown.calories;
     }
     // Rezepte ohne Kaloriendaten → neutral (0 Bonus, kein Malus)
   }
 
-  return Math.max(score, 1); // Mindestens 1
+  return { total: Math.max(score, 1), breakdown };
 }
 
 /**
@@ -398,7 +451,10 @@ function weightedRandomPick(recipes, context) {
     if (eligible.length === 0) eligible = recipes;
   }
 
-  const scored = eligible.map(r => ({ recipe: r, score: scoreRecipe(r, context) }));
+  const scored = eligible.map(r => {
+    const { total, breakdown } = scoreRecipe(r, context);
+    return { recipe: r, score: total, breakdown };
+  });
   scored.sort((a, b) => b.score - a.score);
 
   const totalWeight = scored.reduce((sum, s) => sum + s.score, 0);
@@ -418,10 +474,10 @@ function weightedRandomPick(recipes, context) {
 /**
  * Liefert bewertete Rezeptvorschläge für einen bestimmten Slot.
  */
-export function getSuggestions(userId, { dayIdx = 0, categoryId = null, categoryName = null, excludeRecipeIds = [], planId = null, limit = 8, search = null, householdId = null } = {}) {
+export function getSuggestions(userId, { dayIdx = 0, categoryId = null, categoryName = null, excludeRecipeIds = [], planId = null, limit = 8, search = null, householdId = null, scoringWeights = null } = {}) {
   const isSearch = search && search.trim().length > 0;
   const searchTerm = isSearch ? `%${search.trim().toLowerCase()}%` : null;
-  const effectiveCategoryName = categoryName || 'Mittagessen';
+  const effectiveCategoryName = categoryName; // null = kein Kategorie-Filter
 
   const rWhere = householdWhereClause(userId, householdId, 'r');
   const recipes = db.prepare(`
@@ -468,10 +524,10 @@ export function getSuggestions(userId, { dayIdx = 0, categoryId = null, category
       const ingredients = db.prepare('SELECT name FROM ingredients WHERE recipe_id = ?').all(r.id);
       return { ...r, categories: r.category_names || '', ingredientNames: ingredients.map(i => i.name.toLowerCase()) };
     })
-    .filter(r => isSearch || categoryFitness(r, effectiveCategoryName) !== 'mismatch') // Harter Filter nur ohne Suche!
+    .filter(r => isSearch || !effectiveCategoryName || categoryFitness(r, effectiveCategoryName) !== 'mismatch') // Harter Filter nur ohne Suche und wenn Kategorie gesetzt!
     .map(recipe => {
-      const context = { dayIdx, categoryName: effectiveCategoryName, usedRecipeIds: new Set(), usedIngredients: new Set(), pantrySet, previousMealCategory: null };
-      const score = scoreRecipe(recipe, context);
+      const context = { dayIdx, categoryName: effectiveCategoryName, usedRecipeIds: new Set(), usedIngredients: new Set(), pantrySet, previousMealCategory: null, scoringWeights };
+      const { total: score, breakdown } = scoreRecipe(recipe, context);
 
       // ── Detaillierte Hinweise sammeln ──
       const hints = [];
@@ -549,6 +605,7 @@ export function getSuggestions(userId, { dayIdx = 0, categoryId = null, category
         difficulty: recipe.difficulty,
         is_favorite: recipe.is_favorite,
         score,
+        breakdown,
         hints,
       };
     })
@@ -833,6 +890,8 @@ export async function generateWeekPlan(userId, options = {}) {
         calorieTarget: calorieTarget || null,
         calorieSlotTarget: calorieTarget ? calorieTarget * (effectiveDistribution[cat.id] || 25) / 100 : null,
         calorieStrictness: calorieTarget ? calorieStrictness : null,
+        // Scoring-Gewichte (optional)
+        scoringWeights: options.scoringWeights || null,
       };
 
       const pick = weightedRandomPick(eligible, context);
@@ -850,6 +909,8 @@ export async function generateWeekPlan(userId, options = {}) {
         recipe_id: recipe.id,
         recipe_title: recipe.title,
         servings: personCount,
+        score: pick.score,
+        breakdown: pick.breakdown,
       });
 
       // Grund sammeln
@@ -945,7 +1006,7 @@ export function saveMealPlan(userId, startDate, endDate, planData, householdId) 
     'INSERT INTO meal_plans (user_id, week_start, start_date, end_date, reasoning, household_id, color) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
   const insertEntry = db.prepare(
-    'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO meal_plan_entries (meal_plan_id, recipe_id, day_of_week, plan_date, meal_type, category_id, servings, score, breakdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const updateColor = db.prepare('UPDATE meal_plans SET color = ? WHERE id = ?');
 
@@ -965,7 +1026,12 @@ export function saveMealPlan(userId, startDate, endDate, planData, householdId) 
       const meals = Array.isArray(day.meals) ? day.meals : [];
       for (const meal of meals) {
         if (!meal.recipe_id) continue;
-        insertEntry.run(planId, meal.recipe_id, dayOfWeek, planDate, meal.meal_type, meal.category_id, meal.servings || 4);
+        insertEntry.run(
+          planId, meal.recipe_id, dayOfWeek, planDate, meal.meal_type, meal.category_id,
+          meal.servings || 4,
+          meal.score ?? null,
+          meal.breakdown ? JSON.stringify(meal.breakdown) : null
+        );
       }
     }
 
@@ -1020,6 +1086,13 @@ export function getMealPlan(userId, weekStart, householdId) {
     ORDER BY COALESCE(mpe.plan_date, mpe.day_of_week), mcat.sort_order, mpe.category_id
   `).all(plan.id);
 
+  // Breakdown JSON-Strings parsen
+  for (const entry of entries) {
+    if (entry.breakdown && typeof entry.breakdown === 'string') {
+      try { entry.breakdown = JSON.parse(entry.breakdown); } catch { entry.breakdown = null; }
+    }
+  }
+
   return { ...plan, entries };
 }
 
@@ -1066,6 +1139,13 @@ export function getMealPlanById(userId, planId, householdId) {
     GROUP BY mpe.id
     ORDER BY COALESCE(mpe.plan_date, mpe.day_of_week), mcat.sort_order, mpe.category_id
   `).all(plan.id);
+
+  // Breakdown JSON-Strings parsen
+  for (const entry of entries) {
+    if (entry.breakdown && typeof entry.breakdown === 'string') {
+      try { entry.breakdown = JSON.parse(entry.breakdown); } catch { entry.breakdown = null; }
+    }
+  }
 
   return { ...plan, entries };
 }
@@ -1115,6 +1195,13 @@ export function getEntriesByDateRange(userId, startDate, endDate, householdId) {
     GROUP BY mpe.id
     ORDER BY mpe.plan_date, mcat.sort_order, mpe.category_id
   `).all(...hw.params, startDate, endDate);
+
+  // Breakdown JSON-Strings parsen
+  for (const entry of entries) {
+    if (entry.breakdown && typeof entry.breakdown === 'string') {
+      try { entry.breakdown = JSON.parse(entry.breakdown); } catch { entry.breakdown = null; }
+    }
+  }
 
   // Betroffene Pläne für Metadaten
   const plans = db.prepare(`

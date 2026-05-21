@@ -205,11 +205,25 @@
             <div v-for="recipe in swapSuggestions" :key="recipe.id"
               class="bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-700 rounded-lg p-3 cursor-pointer transition-colors"
               @click="doSwap(recipe.id)">
-              <div class="aspect-video rounded-lg overflow-hidden bg-stone-200 dark:bg-stone-700 mb-2">
+              <div class="relative aspect-video rounded-lg overflow-hidden bg-stone-200 dark:bg-stone-700 mb-2">
                 <img v-if="recipe.image_url" :src="recipe.image_url" class="w-full h-full object-cover" />
                 <span v-else class="flex justify-center items-center w-full h-full text-2xl">🍽️</span>
+                <!-- Score-Badge mit Aufschlüsselung -->
+                <div class="absolute top-1.5 right-1.5" @click.stop>
+                  <ScorePopover :score="recipe.score" :breakdown="recipe.breakdown" />
+                </div>
               </div>
               <p class="font-medium text-stone-800 dark:text-stone-100 text-sm truncate">{{ recipe.title }}</p>
+              <!-- Hints -->
+              <div v-if="recipe.hints?.length" class="flex flex-wrap gap-1 mt-1">
+                <span
+                  v-for="(hint, idx) in recipe.hints.slice(0, 3)" :key="idx"
+                  class="inline-flex items-center gap-0.5 bg-stone-100 dark:bg-stone-700 px-1.5 py-0.5 rounded text-[10px] text-stone-500 dark:text-stone-400"
+                >
+                  <span>{{ hint.icon }}</span>
+                  <span class="truncate max-w-[80px]">{{ hint.text }}</span>
+                </span>
+              </div>
             </div>
           </div>
           <div v-else class="py-8 text-center text-stone-500 dark:text-stone-400 text-sm">
@@ -298,6 +312,7 @@ import RecipeBrowserPanel from '@/components/mealplan/RecipeBrowserPanel.vue';
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import SlotSelectModal from '@/components/mealplan/SlotSelectModal.vue';
+import ScorePopover from '@/components/mealplan/ScorePopover.vue';
 
 const router = useRouter();
 const store = useMealPlanStore();

@@ -25,11 +25,35 @@
       <div
         v-for="plan in visiblePlans"
         :key="plan.id"
-        class="h-1.5 sm:h-1 cursor-pointer hover:opacity-80 transition-opacity"
+        class="relative h-1.5 sm:h-1 cursor-pointer hover:opacity-80 transition-opacity"
         :style="{ backgroundColor: plan.color || '#6366f1' }"
         :title="`Plan ${formatShortDate(plan.start_date || plan.week_start)} – ${formatShortDate(plan.end_date || plan.week_start)}`"
         @click.stop="$emit('plan-click', plan)"
-      />
+      >
+        <!-- Start-Ecke (oben links, konkav) -->
+        <svg
+          v-if="isPlanStart(plan)"
+          class="absolute top-1 left-0 w-8 h-8"
+          viewBox="0 0 34 34"
+        >
+          <path
+            :fill="plan.color || '#6366f1'"
+            d="M 0 0 H 34 C 6 0 0 9 0 21 Z"
+          />
+        </svg>
+
+        <!-- Ende-Ecke (oben rechts, konkav) -->
+        <svg
+          v-if="isPlanEnd(plan)"
+          class="absolute top-1 right-0 w-7 h-7"
+          viewBox="0 0 34 34"
+        >
+          <path
+            :fill="plan.color || '#6366f1'"
+            d="M 34 0 H 0 C 28 0 34 9 34 21 Z"
+          />
+        </svg>
+      </div>
     </div>
 
     <!-- Datum (oben rechts) -->
@@ -160,5 +184,15 @@ function formatShortDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T12:00:00');
   return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+}
+
+function isPlanStart(plan) {
+  const start = plan.start_date || plan.week_start;
+  return start === props.day.dateStr;
+}
+
+function isPlanEnd(plan) {
+  const end = plan.end_date;
+  return end === props.day.dateStr;
 }
 </script>

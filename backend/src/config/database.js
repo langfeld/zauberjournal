@@ -863,6 +863,31 @@ function migrateDatabase() {
     )
   `);
 
+  // ============================================
+  // Household-Settings Tabelle (Key-Value pro Haushalt)
+  // ============================================
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS household_settings (
+      household_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (household_id, key),
+      FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Spalte 'score' und 'breakdown' in meal_plan_entries hinzufügen (Scoring-Transparenz)
+  const mpeColsScore = db.prepare("PRAGMA table_info(meal_plan_entries)").all().map(c => c.name);
+  if (!mpeColsScore.includes('score')) {
+    db.exec("ALTER TABLE meal_plan_entries ADD COLUMN score INTEGER");
+    console.log('  ↳ Migration: meal_plan_entries.score hinzugefügt');
+  }
+  if (!mpeColsScore.includes('breakdown')) {
+    db.exec("ALTER TABLE meal_plan_entries ADD COLUMN breakdown TEXT");
+    console.log('  ↳ Migration: meal_plan_entries.breakdown hinzugefügt');
+  }
+
   // Spalte 'dedup_note' in shopping_list_items hinzufügen (KI-Deduplizierungs-Info)
   const sliColsDedup = db.prepare("PRAGMA table_info(shopping_list_items)").all().map(c => c.name);
   if (!sliColsDedup.includes('dedup_note')) {

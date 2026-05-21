@@ -69,11 +69,14 @@
                       <p class="font-semibold text-stone-800 dark:text-stone-100 text-sm leading-tight line-clamp-2">
                         {{ entry.recipe_title }}
                       </p>
-                      <p class="text-stone-500 dark:text-stone-400 text-xs mt-1">
-                        <span class="mr-1">{{ entry.category_icon }}</span>
-                        {{ entry.category_name }}
-                        <span v-if="entry.is_cooked" class="ml-2 text-accent-600 dark:text-accent-400">✓ Gekocht</span>
-                      </p>
+                      <div class="flex items-center gap-2 mt-1">
+                        <p class="text-stone-500 dark:text-stone-400 text-xs">
+                          <span class="mr-1">{{ entry.category_icon }}</span>
+                          {{ entry.category_name }}
+                          <span v-if="entry.is_cooked" class="ml-2 text-accent-600 dark:text-accent-400">✓ Gekocht</span>
+                        </p>
+                        <span @click.stop><ScorePopover v-if="entry.score != null" :score="entry.score" :breakdown="entry.breakdown" /></span>
+                      </div>
                     </div>
 
                     <!-- Meta: Portionen -->
@@ -166,6 +169,7 @@
 <script setup>
 import { computed } from 'vue';
 import { X, Lock, Unlock, Copy, ShoppingCart, Trash2, RefreshCw, Pencil, Plus, Users, Check } from 'lucide-vue-next';
+import ScorePopover from './ScorePopover.vue';
 
 const props = defineProps({
   isOpen: Boolean,

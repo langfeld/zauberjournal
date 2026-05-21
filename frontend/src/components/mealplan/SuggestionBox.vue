@@ -123,9 +123,23 @@
                 <div v-if="isDraggable" class="absolute inset-0 flex justify-center items-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none drag-hint">
                   <GripVertical class="w-5 h-5 text-white" />
                 </div>
+                <!-- Score-Badge mit Aufschlüsselung -->
+                <div class="absolute top-1.5 right-1.5" @click.stop>
+                  <ScorePopover :score="recipe.score" :breakdown="recipe.breakdown" />
+                </div>
               </div>
               <p class="font-medium text-stone-700 dark:group-hover:text-primary-400 dark:text-stone-300 group-hover:text-primary-600 text-xs truncate transition-colors">{{ recipe.title }}</p>
-              <p v-if="recipe.reason" class="text-[10px] text-stone-400 truncate">{{ recipe.reason }}</p>
+              <!-- Hints -->
+              <div v-if="recipe.hints?.length" class="flex flex-wrap gap-1 mt-1">
+                <span
+                  v-for="(hint, idx) in recipe.hints.slice(0, 2)" :key="idx"
+                  class="inline-flex items-center gap-0.5 bg-stone-100 dark:bg-stone-700 px-1.5 py-0.5 rounded text-[10px] text-stone-500 dark:text-stone-400"
+                >
+                  <span>{{ hint.icon }}</span>
+                  <span class="truncate max-w-[80px]">{{ hint.text }}</span>
+                </span>
+              </div>
+              <p v-else-if="recipe.reason" class="text-[10px] text-stone-400 truncate">{{ recipe.reason }}</p>
               <p v-else-if="recipe.total_time" class="text-[10px] text-stone-400 truncate">{{ recipe.total_time }} Min.<span v-if="recipe.difficulty"> · {{ recipe.difficulty }}</span></p>
             </div>
           </div>
@@ -236,6 +250,7 @@
 import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { Lightbulb, Flame, RotateCcw, ChevronDown, ChevronLeft, ChevronRight, GripVertical, Calendar, ExternalLink, CalendarPlus } from 'lucide-vue-next';
+import ScorePopover from './ScorePopover.vue';
 
 const props = defineProps({
   lastWeekRecipes: { type: Array, default: () => [] },

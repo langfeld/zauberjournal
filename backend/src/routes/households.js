@@ -9,7 +9,7 @@
 import db from '../config/database.js';
 import { randomBytes } from 'crypto';
 import { getDefaultHousehold, isHouseholdMember, getUserHouseholdIds } from '../config/database.js';
-import { getSetting } from '../config/settings.js';
+import { getSetting, getAllHouseholdSettings, setHouseholdSetting } from '../config/settings.js';
 
 /**
  * Erzeugt einen 8-stelligen alphanumerischen Invite-Code
@@ -1335,5 +1335,67 @@ export default async function householdRoutes(fastify) {
       collections: collections.map(c => ({ name: c.name, icon: c.icon, color: c.color })),
       pantry: pantryItems,
     };
+  });
+
+  // ─────────────────────────────────────────────
+  // GET /:householdId/settings – Haushalt-Einstellungen lesen
+  // ─────────────────────────────────────────────
+  fastify.get('/:householdId/settings', {
+    schema: {
+      description: 'Haushalt-spezifische Einstellungen lesen',
+      tags: ['Haushalte'],
+      security: [{ bearerAuth: [] }],
+      params: {
+        type: 'object',
+        properties: { householdId: { type: 'integer' } },
+        required: ['householdId'],
+      },
+    },
+  }, async (request, reply) => {
+    const { householdId } = request.params;
+    const userId = request.user.id;
+    if (!isHouseholdMember(userId, householdId)) {
+      return reply.status(403).send({ error: 'Kein Mitglied dieses Haushalts' });
+    }
+    const settings = getAllHouseholdSettings(householdId);
+    return { settings };
+  });
+
+  // ─────────────────────────────────────────────
+  // PUT /:householdId/settings – Haushalt-Einstellungen speichern
+  // ─────────────────────────────────────────────
+  fastify.put('/:householdId/settings', {
+    schema: {
+      description: 'Haushalt-spezifische Einstellungen speichern',
+      tags: ['Haushalte'],
+      security: [{ bearerAuth: [] }],
+      params: {
+        type: 'object',
+        properties: { householdId: { type: 'integer' } },
+        required: ['householdId'],
+      },
+      body: {
+        type: 'object',
+        properties: {
+          settings: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+            description: 'Key-Value Map der Einstellungen',
+          },
+        },
+        required: ['settings'],
+      },
+    },
+  }, async (request, reply) => {
+    const { householdId } = request.params;
+    const userId = request.user.id;
+    if (!isHouseholdMember(userId, householdId)) {
+      return reply.status(403).send({ error: 'Kein Mitglied dieses Haushalts' });
+    }
+    const { settings } = request.body;
+    for (const [key, value] of Object.entries(settings)) {
+      setHouseholdSetting(householdId, key, value);
+    }
+    return { message: 'Einstellungen gespeichert', settings: getAllHouseholdSettings(householdId) };
   });
 }

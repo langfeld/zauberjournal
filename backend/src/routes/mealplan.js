@@ -11,7 +11,7 @@ import { householdWhereClause, getMealTimeCategories, getCategoryForUser } from 
 import { generateWeekPlan, generateReasoning, saveMealPlan, getMealPlan, getMealPlanById, getEntriesByDateRange, getSuggestions, addDays, formatDateLocal } from '../services/meal-planner.js';
 import { getWeekStart, getDayOfWeek, scaleIngredient, convertToBaseUnit, normalizeUnit, unitsCompatible, comparePantryAmount } from '../utils/helpers.js';
 import { broadcastToHousehold } from './household-events.js';
-import { getSetting } from '../config/settings.js';
+import { getSetting, setHouseholdSetting, getHouseholdSetting } from '../config/settings.js';
 import { aiPantryDeduction, undoAIPantryDeduction } from '../services/pantry-deduction-ai.js';
 import { createAIProgress } from '../utils/ai-progress.js';
 
@@ -154,6 +154,26 @@ export default async function mealplanRoutes(fastify) {
             default: false,
             description: 'Nur Haushalt-Rezepte verwenden (keine privaten). Erfordert aktiven Haushalt.',
           },
+          scoringProfile: {
+            type: 'string',
+            enum: ['balanced', 'variety', 'favorites', 'shopping', 'quick'],
+            default: 'balanced',
+            description: 'Scoring-Profil für die Plan-Generierung',
+          },
+          scoringWeights: {
+            type: 'object',
+            properties: {
+              rotationWeight: { type: 'number', minimum: 0, maximum: 3 },
+              favoriteWeight: { type: 'number', minimum: 0, maximum: 3 },
+              ratingWeight: { type: 'number', minimum: 0, maximum: 3 },
+              varietyWeight: { type: 'number', minimum: 0, maximum: 3 },
+              difficultyWeight: { type: 'number', minimum: 0, maximum: 3 },
+              timeWeight: { type: 'number', minimum: 0, maximum: 3 },
+              shoppingWeight: { type: 'number', minimum: 0, maximum: 3 },
+              calorieWeight: { type: 'number', minimum: 0, maximum: 3 },
+            },
+            description: 'Individuelle Scoring-Gewichte (Multiplikatoren)',
+          },
         },
       },
     },
@@ -200,12 +220,34 @@ export default async function mealplanRoutes(fastify) {
           : allMealTimeCategories;
       }
 
+      // Scoring-Gewichte aus Profil oder expliziten Werten ableiten
+      let scoringWeights = request.body?.scoringWeights || null;
+      const profile = request.body?.scoringProfile || 'balanced';
+      if (!scoringWeights && profile !== 'balanced') {
+        const profiles = {
+          variety:   { rotationWeight: 1.5, favoriteWeight: 0.7, ratingWeight: 0.8, varietyWeight: 1.5, difficultyWeight: 1.0, timeWeight: 1.0, shoppingWeight: 0.7, calorieWeight: 1.0 },
+          favorites: { rotationWeight: 0.7, favoriteWeight: 1.5, ratingWeight: 1.5, varietyWeight: 0.7, difficultyWeight: 1.0, timeWeight: 1.0, shoppingWeight: 0.7, calorieWeight: 1.0 },
+          shopping:  { rotationWeight: 0.7, favoriteWeight: 0.7, ratingWeight: 0.8, varietyWeight: 0.7, difficultyWeight: 1.0, timeWeight: 1.0, shoppingWeight: 1.5, calorieWeight: 1.0 },
+          quick:     { rotationWeight: 0.7, favoriteWeight: 0.7, ratingWeight: 0.8, varietyWeight: 0.7, difficultyWeight: 1.5, timeWeight: 1.5, shoppingWeight: 0.7, calorieWeight: 1.0 },
+        };
+        scoringWeights = profiles[profile] || null;
+      }
+
+      // Haushalt-Settings speichern, damit das Profil persistiert ist
+      if (householdId) {
+        setHouseholdSetting(householdId, 'scoring_profile', profile);
+        if (scoringWeights) {
+          setHouseholdSetting(householdId, 'scoring_weights', JSON.stringify(scoringWeights));
+        }
+      }
+
       const options = {
         ...request.body,
         startDate,
         endDate,
         householdId,
         mealCategories: categories,
+        scoringWeights,
       };
 
       // --- Overlap-Handling: bestehende Entries für den Zeitraum löschen ---
@@ -763,7 +805,16 @@ export default async function mealplanRoutes(fastify) {
       categoryName = cat?.name || null;
     }
 
-    const suggestions = getSuggestions(request.user.id, { dayIdx, categoryId, categoryName, excludeRecipeIds, planId, limit, search, householdId: request.householdId });
+    // Aktive Scoring-Gewichte des Haushalts laden (falls vorhanden)
+    let scoringWeights = null;
+    if (request.householdId) {
+      const weightsJson = getHouseholdSetting(request.householdId, 'scoring_weights', '');
+      if (weightsJson) {
+        try { scoringWeights = JSON.parse(weightsJson); } catch { /* ignore */ }
+      }
+    }
+
+    const suggestions = getSuggestions(request.user.id, { dayIdx, categoryId, categoryName, excludeRecipeIds, planId, limit, search, householdId: request.householdId, scoringWeights });
     return { suggestions };
   });
 
@@ -787,34 +838,19 @@ export default async function mealplanRoutes(fastify) {
     const userId = request.user.id;
     const householdId = request.householdId;
 
-    const rWhere = householdWhereClause(userId, householdId, 'r');
-    const recipes = db.prepare(`
-      SELECT r.*,
-        (SELECT COUNT(*) FROM cooking_history ch WHERE ch.recipe_id = r.id) as cook_count,
-        (SELECT MAX(ch.cooked_at) FROM cooking_history ch WHERE ch.recipe_id = r.id) as last_cooked,
-        (SELECT AVG(ch.rating) FROM cooking_history ch WHERE ch.recipe_id = r.id AND ch.rating IS NOT NULL) as avg_rating
-      FROM recipes r
-      WHERE (${rWhere.clause})
-      ORDER BY
-        r.is_favorite DESC,
-        avg_rating DESC NULLS LAST,
-        r.last_cooked_at ASC NULLS FIRST,
-        r.times_cooked ASC
-      LIMIT ?
-    `).all(...rWhere.params, limit);
+    // Aktive Scoring-Gewichte des Haushalts laden (falls vorhanden)
+    let scoringWeights = null;
+    if (householdId) {
+      const weightsJson = getHouseholdSetting(householdId, 'scoring_weights', '');
+      if (weightsJson) {
+        try { scoringWeights = JSON.parse(weightsJson); } catch { /* ignore */ }
+      }
+    }
 
-    return {
-      suggestions: recipes.map(r => ({
-        id: r.id,
-        title: r.title,
-        image_url: r.image_url,
-        total_time: r.total_time,
-        difficulty: r.difficulty,
-        is_favorite: r.is_favorite,
-        calories: r.calories,
-        reason: buildSuggestionReason(r),
-      })),
-    };
+    // Nutze denselben Scoring-Algorithmus wie die Slot-Vorschläge, aber ohne Kategorie-Filter
+    const suggestions = getSuggestions(userId, { limit, householdId, categoryName: null, scoringWeights });
+
+    return { suggestions };
   });
 
   // ─────────────────────────────────────────────

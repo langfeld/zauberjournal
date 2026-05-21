@@ -95,6 +95,43 @@ export function isReweEnabled() {
 }
 
 /**
+ * Einzelne Haushalt-Einstellung lesen
+ */
+export function getHouseholdSetting(householdId, key, fallback = '') {
+  if (!householdId) return fallback;
+  try {
+    const row = db.prepare('SELECT value FROM household_settings WHERE household_id = ? AND key = ?').get(householdId, key);
+    if (row && row.value !== null && row.value !== '') return row.value;
+  } catch { /* Tabelle noch nicht initialisiert */ }
+  return fallback;
+}
+
+/**
+ * Haushalt-Einstellung speichern
+ */
+export function setHouseholdSetting(householdId, key, value) {
+  if (!householdId) return;
+  db.prepare(
+    'INSERT OR REPLACE INTO household_settings (household_id, key, value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)'
+  ).run(householdId, key, String(value));
+}
+
+/**
+ * Alle Haushalt-Einstellungen als Objekt lesen
+ */
+export function getAllHouseholdSettings(householdId) {
+  if (!householdId) return {};
+  try {
+    const rows = db.prepare('SELECT key, value FROM household_settings WHERE household_id = ?').all(householdId);
+    const map = {};
+    for (const row of rows) map[row.key] = row.value;
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * REWE-Konfiguration für einen bestimmten User
  * Jeder User muss seinen eigenen Markt konfigurieren.
  */

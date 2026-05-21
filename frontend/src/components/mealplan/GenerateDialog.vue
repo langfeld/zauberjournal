@@ -93,7 +93,7 @@
         </div>
 
         <!-- Content: Einstellungen -->
-        <div v-else class="flex-1 overflow-y-auto p-6 space-y-5">
+        <div v-else-if="activeTab === 'settings'" class="flex-1 overflow-y-auto p-6 space-y-5">
           <!-- Rezeptquelle -->
           <div>
             <label class="block mb-2 font-medium text-stone-700 dark:text-stone-200 text-sm">Rezeptquelle</label>
@@ -216,6 +216,61 @@
           </div>
         </div>
 
+        <!-- Content: Scoring -->
+        <div v-if="activeTab === 'scoring'" class="flex-1 overflow-y-auto p-6 space-y-5">
+          <!-- Profil-Auswahl -->
+          <div>
+            <label class="block mb-2 font-medium text-stone-700 dark:text-stone-200 text-sm">Scoring-Profil</label>
+            <p class="mb-2 text-stone-400 dark:text-stone-500 text-xs">Wähle, welche Aspekte bei der Rezept-Auswahl bevorzugt werden sollen.</p>
+            <div class="space-y-2">
+              <label v-for="p in scoringProfiles" :key="p.id"
+                class="flex items-center gap-2.5 bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-700 rounded-lg px-3 py-2.5 cursor-pointer transition-colors">
+                <input type="radio" :value="p.id" v-model="form.scoringProfile" class="accent-primary-600" />
+                <div>
+                  <p class="text-sm text-stone-700 dark:text-stone-200 font-medium">{{ p.label }}</p>
+                  <p class="text-stone-400 dark:text-stone-500 text-xs">{{ p.description }}</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Erweiterte Anpassung (ausklappbar) -->
+          <div class="pt-3 border-t border-stone-200 dark:border-stone-700">
+            <button @click="showAdvancedScoring = !showAdvancedScoring"
+              class="flex items-center gap-1.5 text-sm font-medium text-stone-600 dark:text-stone-300 hover:text-stone-800 dark:hover:text-stone-100 transition-colors cursor-pointer">
+              <span>{{ showAdvancedScoring ? '▾' : '▸' }}</span>
+              <span>Erweiterte Anpassung</span>
+            </button>
+
+            <Transition name="fade">
+              <div v-if="showAdvancedScoring" class="mt-3 space-y-4">
+                <div v-for="slider in scoringSliders" :key="slider.key">
+                  <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs text-stone-600 dark:text-stone-300">{{ slider.label }}</label>
+                    <span class="text-xs font-medium text-stone-500 dark:text-stone-400">{{ Math.round((form.scoringWeights[slider.key] ?? 1.0) * 100) }}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    :min="0"
+                    :max="300"
+                    :value="Math.round((form.scoringWeights[slider.key] ?? 1.0) * 100)"
+                    @input="updateWeight(slider.key, $event.target.value)"
+                    class="w-full accent-primary-600 h-1.5 bg-stone-200 dark:bg-stone-700 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div class="flex justify-between text-[10px] text-stone-400 mt-0.5">
+                    <span>0%</span>
+                    <span>150%</span>
+                    <span>300%</span>
+                  </div>
+                </div>
+                <p v-if="isCustomScoring" class="text-xs text-amber-600 dark:text-amber-400">
+                  Profil wird als „Benutzerdefiniert" gespeichert.
+                </p>
+              </div>
+            </Transition>
+          </div>
+        </div>
+
         <!-- Footer -->
         <div class="shrink-0 flex justify-end gap-3 px-6 py-4 border-t border-stone-200 dark:border-stone-700">
           <button @click="close"
@@ -264,7 +319,45 @@ const form = ref({
   deduplicate: true,
   activeDays: [0, 1, 2, 3, 4, 5, 6],
   enableAiReasoning: false,
+  scoringProfile: 'balanced',
+  scoringWeights: {},
 });
+
+const showAdvancedScoring = ref(false);
+
+const scoringProfiles = [
+  { id: 'balanced', label: 'Ausgewogen', description: 'Alle Faktoren gleich gewichtet – guter Mix aus Abwechslung, Favoriten und Einkaufsoptimierung.' },
+  { id: 'variety', label: 'Mehr Abwechslung', description: 'Bevorzugt lange nicht gekochte Rezepte und vermeidet Duplikate & gleiche Kategorien hintereinander.' },
+  { id: 'favorites', label: 'Favoriten bevorzugen', description: 'Favoriten und gut bewertete Rezepte werden stärker gewichtet.' },
+  { id: 'shopping', label: 'Einkaufsoptimierung', description: 'Rezepte mit überlappenden Zutaten und vorhandenen Vorräten werden bevorzugt.' },
+  { id: 'quick', label: 'Schnell & einfach', description: 'Einfache, schnelle Rezepte werden unter der Woche bevorzugt.' },
+];
+
+const scoringSliders = [
+  { key: 'rotationWeight', label: 'Rotation (lange nicht gekocht)' },
+  { key: 'favoriteWeight', label: 'Favoriten' },
+  { key: 'ratingWeight', label: 'Bewertung' },
+  { key: 'varietyWeight', label: 'Abwechslung & Duplikate' },
+  { key: 'difficultyWeight', label: 'Schwierigkeit' },
+  { key: 'timeWeight', label: 'Zeitaufwand' },
+  { key: 'shoppingWeight', label: 'Zutaten-Überlappung & Vorräte' },
+  { key: 'calorieWeight', label: 'Kalorien-Passung' },
+];
+
+const isCustomScoring = computed(() => {
+  // Custom wenn ein Slider vom Default (1.0) abweicht
+  const weights = form.value.scoringWeights;
+  if (!weights || Object.keys(weights).length === 0) return false;
+  return Object.values(weights).some(v => v !== 1.0);
+});
+
+function updateWeight(key, value) {
+  if (!form.value.scoringWeights) form.value.scoringWeights = {};
+  form.value.scoringWeights[key] = parseInt(value, 10) / 100;
+  if (form.value.scoringProfile !== 'custom') {
+    form.value.scoringProfile = 'custom';
+  }
+}
 
 const activeTab = ref('generate');
 const newTemplateName = ref('');
@@ -273,6 +366,7 @@ const isInitialized = ref(false);
 const tabs = [
   { id: 'generate', label: 'Generieren' },
   { id: 'settings', label: 'Einstellungen' },
+  { id: 'scoring', label: 'Scoring' },
 ];
 
 const templates = ref([]);
@@ -349,6 +443,10 @@ function loadSavedSettings() {
       const validIds = parsed.categoryIds.filter(id => props.mealCategories.some(c => c.id === id));
       if (validIds.length > 0) form.value.categoryIds = validIds;
     }
+    if (parsed.scoringProfile) form.value.scoringProfile = parsed.scoringProfile;
+    if (parsed.scoringWeights && typeof parsed.scoringWeights === 'object') {
+      form.value.scoringWeights = parsed.scoringWeights;
+    }
   } catch { /* ignore */ }
 }
 
@@ -362,6 +460,8 @@ function saveSettings() {
       deduplicate: form.value.deduplicate,
       activeDays: form.value.activeDays,
       enableAiReasoning: form.value.enableAiReasoning,
+      scoringProfile: form.value.scoringProfile,
+      scoringWeights: form.value.scoringWeights,
     }));
   } catch { /* ignore */ }
 }
@@ -432,6 +532,8 @@ watch(
     deduplicate: form.value.deduplicate,
     activeDays: form.value.activeDays,
     enableAiReasoning: form.value.enableAiReasoning,
+    scoringProfile: form.value.scoringProfile,
+    scoringWeights: form.value.scoringWeights,
   }),
   () => {
     if (!isInitialized.value) return;
@@ -463,7 +565,7 @@ function applyPreset(preset) {
 function generate() {
   saveSettings();
   const collectionIds = form.value.source === 'collections' ? form.value.collectionIds : undefined;
-  emit('generate', {
+  const payload = {
     startDate: form.value.startDate,
     endDate: form.value.endDate,
     categoryIds: form.value.categoryIds,
@@ -473,7 +575,13 @@ function generate() {
     collectionIds,
     deduplicate: form.value.deduplicate,
     activeDays: form.value.activeDays,
-  });
+    scoringProfile: form.value.scoringProfile,
+  };
+  // Nur Benutzerdefinierte Gewichte mitschicken, sonst nutzt das Backend das Profil
+  if (form.value.scoringProfile === 'custom' && form.value.scoringWeights && Object.keys(form.value.scoringWeights).length > 0) {
+    payload.scoringWeights = form.value.scoringWeights;
+  }
+  emit('generate', payload);
 }
 
 function close() {
