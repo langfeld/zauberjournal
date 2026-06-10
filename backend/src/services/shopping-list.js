@@ -63,9 +63,21 @@ async function aiAggregateItems(itemsList) {
     const key = item.name.toLowerCase();
     nameCount.set(key, (nameCount.get(key) || 0) + 1);
   }
-  const needsAI = [...nameCount.values()].some(c => c > 1);
+  const needsUnitMerge = [...nameCount.values()].some(c => c > 1);
 
-  if (!needsAI) {
+  // Auch prüfen ob es semantisch ähnliche Zutaten gibt (Plural/Singular, Spezialisierungen, etc.)
+  let hasSimilar = false;
+  const names = preAggregated.map(i => i.name);
+  outer: for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      if (maybeSameIngredient(names[i], names[j])) {
+        hasSimilar = true;
+        break outer;
+      }
+    }
+  }
+
+  if (!needsUnitMerge && !hasSimilar) {
     return preAggregated; // Keine Duplikate → KI nicht nötig
   }
 
@@ -73,12 +85,22 @@ async function aiAggregateItems(itemsList) {
   try {
     const ai = getAIProvider({ simple: true });
 
-    // Nur die duplizierten Zutaten an die KI schicken
+    // Alle duplizierten oder ähnlichen Zutaten an die KI schicken
     const duplicateNames = new Set([...nameCount.entries()].filter(([, c]) => c > 1).map(([n]) => n));
+    // Auch ähnliche Namen hinzufügen (z.B. "Tomate" + "Tomaten" + "Rispentomaten")
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) {
+        if (maybeSameIngredient(names[i], names[j])) {
+          duplicateNames.add(names[i].toLowerCase());
+          duplicateNames.add(names[j].toLowerCase());
+        }
+      }
+    }
     const toMerge = preAggregated.filter(i => duplicateNames.has(i.name.toLowerCase()));
     const keepAsIs = preAggregated.filter(i => !duplicateNames.has(i.name.toLowerCase()));
 
     const prompt = `Fasse diese Einkaufslisten-Einträge zusammen. Gleiche Zutaten mit verschiedenen Einheiten sollen zu EINEM Eintrag werden.
+Auch ähnliche Zutaten (Plural/Singular, Spezialisierungen wie "Rispentomaten" und "Tomate") sollen zu EINEM Eintrag zusammengefasst werden.
 Wähle die natürlichste Einkaufseinheit:
 - Zählbare Zutaten (Zwiebel, Tomate, Paprika, Ei, Brötchen etc.) → Stückzahl (unit: "")
 - Gewichtsware (Fleisch, Käse, Mehl etc.) → g oder kg
@@ -88,9 +110,10 @@ Eingabe:
 ${JSON.stringify(toMerge.map(i => ({ name: i.name, amount: i.amount, unit: i.unit })), null, 2)}
 
 Antworte als JSON-Objekt mit einem "items"-Array:
-{"items": [{ "name": "Zutatename", "amount": 3, "unit": "" }]}
+{"items": [{ "name": "Zutatename", "amount": 3, "unit": "", "mergedFrom": ["Tomate", "Tomaten", "Rispentomaten"] }]}
 
 Regeln:
+- "mergedFrom" enthält ALLE originalen Namen die zu diesem Eintrag zusammengeführt wurden
 - Jede Zutat nur EINMAL in der Ausgabe
 - Mengen sinnvoll umrechnen (z.B. 150g Zwiebel ≈ 1-2 Zwiebeln → 2 Zwiebeln)
 - Bei Unsicherheit lieber aufrunden
@@ -107,12 +130,22 @@ Regeln:
 
     // KI-Ergebnis mit Rezept-Referenzen anreichern
     const result = [...keepAsIs];
+    const usedNames = new Set();
     for (const aiItem of merged) {
-      // Alle Originaleinträge dieser Zutat finden
-      const originals = toMerge.filter(i => i.name.toLowerCase() === aiItem.name.toLowerCase());
+      // Alle Originaleinträge dieser Zutat finden (via mergedFrom oder exakter Name)
+      const mergedNames = (aiItem.mergedFrom || [aiItem.name]).map(n => n.toLowerCase());
+      const originals = toMerge.filter(i => {
+        if (usedNames.has(i.name.toLowerCase())) return false;
+        return mergedNames.includes(i.name.toLowerCase());
+      });
+
+      for (const o of originals) {
+        usedNames.add(o.name.toLowerCase());
+      }
+
       const allRecipes = originals.flatMap(o => o.recipes);
       const allRecipeIds = [...new Set(originals.flatMap(o => o.recipeIds))];
-      const isOptional = originals.every(o => o.isOptional);
+      const isOptional = originals.length > 0 ? originals.every(o => o.isOptional) : false;
 
       result.push({
         name: aiItem.name || originals[0]?.name,
@@ -122,6 +155,13 @@ Regeln:
         recipeIds: allRecipeIds,
         isOptional,
       });
+    }
+
+    // Noch unverwendete Items aus toMerge hinzufügen (z.B. wenn KI ein Item nicht zurückgibt)
+    for (const item of toMerge) {
+      if (!usedNames.has(item.name.toLowerCase())) {
+        result.push(item);
+      }
     }
 
     console.log(`🤖 KI-Aggregation: ${preAggregated.length} → ${result.length} Einträge`);
@@ -182,6 +222,18 @@ function maybeSameIngredient(nameA, nameB) {
     for (const wa of wordsA) {
       for (const wb of wordsB) {
         if (wa === wb) return true;
+      }
+    }
+  }
+
+  // Zusätzlich: Prüfen ob ein Name den anderen als Teilstring enthält (nach Stemming)
+  // z.B. "Rispentomaten" enthält "Tomat" (gestemmt) → erkannt als verwandt
+  const stemmedA = a.split(/\s+/).map(stemGerman).filter(w => w.length >= 4);
+  const stemmedB = b.split(/\s+/).map(stemGerman).filter(w => w.length >= 4);
+  for (const wa of stemmedA) {
+    for (const wb of stemmedB) {
+      if (wa.includes(wb) || wb.includes(wa)) {
+        return true;
       }
     }
   }
