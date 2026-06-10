@@ -474,7 +474,7 @@ function weightedRandomPick(recipes, context) {
 /**
  * Liefert bewertete Rezeptvorschläge für einen bestimmten Slot.
  */
-export function getSuggestions(userId, { dayIdx = 0, categoryId = null, categoryName = null, excludeRecipeIds = [], planId = null, limit = 8, search = null, householdId = null, scoringWeights = null } = {}) {
+export function getSuggestions(userId, { dayIdx = 0, categoryId = null, categoryName = null, excludeRecipeIds = [], planId = null, limit = 8, offset = 0, search = null, householdId = null, scoringWeights = null } = {}) {
   const isSearch = search && search.trim().length > 0;
   const searchTerm = isSearch ? `%${search.trim().toLowerCase()}%` : null;
   const effectiveCategoryName = categoryName; // null = kein Kategorie-Filter
@@ -610,7 +610,7 @@ export function getSuggestions(userId, { dayIdx = 0, categoryId = null, category
       };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .slice(offset, offset + limit);
 
   return scored;
 }

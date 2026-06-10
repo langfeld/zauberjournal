@@ -253,8 +253,8 @@ export const useMealPlanStore = defineStore('mealplan', () => {
   }
 
   /** Rezeptvorschläge für einen Slot */
-  async function fetchSuggestions({ dayIdx, categoryId, excludeRecipeIds = [], planId = null, search = null }) {
-    const params = new URLSearchParams({ dayIdx, limit: 8 });
+  async function fetchSuggestions({ dayIdx, categoryId, excludeRecipeIds = [], planId = null, search = null, offset = 0, limit = 8 }) {
+    const params = new URLSearchParams({ dayIdx, limit: String(limit), offset: String(offset) });
     if (categoryId) params.set('categoryId', categoryId);
     if (excludeRecipeIds.length) params.set('excludeRecipeIds', excludeRecipeIds.join(','));
     if (planId) params.set('planId', planId);

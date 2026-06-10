@@ -197,8 +197,28 @@
           </button>
         </div>
         <div class="flex-1 overflow-y-auto p-4">
+          <!-- Kategorie / Slot Auswahl -->
+          <div class="mb-4">
+            <p class="text-xs text-stone-500 dark:text-stone-400 mb-1.5 font-medium uppercase tracking-wide">Mahlzeit-Typ</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="slot in mealTypes"
+                :key="slot.id"
+                @click="onSwapCategoryChange(slot.id)"
+                :class="[
+                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer',
+                  swapCategoryId === slot.id
+                    ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 border border-primary-300 dark:border-primary-700'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700 hover:bg-stone-200 dark:hover:bg-stone-700'
+                ]"
+              >
+                <span class="mr-1">{{ slot.icon }}</span>
+                {{ slot.name }}
+              </button>
+            </div>
+          </div>
           <div class="flex gap-2 mb-4">
-            <input v-model="swapSearch" placeholder="Rezept suchen…"
+            <input v-model="swapSearch" @keyup.enter="onSwapSearchChange" placeholder="Rezept suchen…"
               class="flex-1 bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-700 dark:text-stone-200" />
           </div>
           <div v-if="swapSuggestions.length" class="grid grid-cols-2 gap-2">
@@ -226,8 +246,21 @@
               </div>
             </div>
           </div>
-          <div v-else class="py-8 text-center text-stone-500 dark:text-stone-400 text-sm">
+          <div v-else-if="!swapLoading" class="py-8 text-center text-stone-500 dark:text-stone-400 text-sm">
             Keine Vorschläge gefunden.
+          </div>
+          <div v-if="swapLoading" class="py-4 text-center">
+            <div class="border-2 border-stone-200 border-t-primary-600 rounded-full w-5 h-5 animate-spin mx-auto" />
+          </div>
+          <!-- Mehr laden -->
+          <div v-if="swapSuggestions.length > 0 && !swapLoading" class="mt-3 text-center">
+            <button
+              @click="loadMoreSuggestions"
+              class="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 px-4 py-2 rounded-lg text-xs font-medium text-stone-600 dark:text-stone-400 transition-colors cursor-pointer"
+            >
+              <Plus class="w-3.5 h-3.5" />
+              Mehr laden
+            </button>
           </div>
         </div>
         </div>
@@ -341,6 +374,9 @@ const swapEntry = ref(null);
 const swapDateStr = ref(null);
 const swapSearch = ref('');
 const swapSuggestions = ref([]);
+const swapCategoryId = ref(null);
+const swapOffset = ref(0);
+const swapLoading = ref(false);
 const reopenPlanAfterSwap = ref(false);
 
 // Servings Popup
@@ -596,6 +632,8 @@ async function openSwapDialog(entry) {
   swapEntry.value = entry;
   swapDateStr.value = entry?.plan_date || null;
   swapSearch.value = '';
+  swapCategoryId.value = entry?.category_id || mealTypes.value[0]?.id || null;
+  swapOffset.value = 0;
 
   // Inception vermeiden: Plan-Modal sofort schließen
   if (showPlanModal.value) {
@@ -608,11 +646,17 @@ async function openSwapDialog(entry) {
   const dayIdx = entry?.plan_date
     ? (new Date(entry.plan_date + 'T12:00:00').getDay() + 6) % 7
     : 0;
-  const data = await store.fetchSuggestions({
-    dayIdx,
-    categoryId: entry?.category_id,
-  });
-  swapSuggestions.value = data || [];
+  swapLoading.value = true;
+  try {
+    const data = await store.fetchSuggestions({
+      dayIdx,
+      categoryId: swapCategoryId.value,
+      offset: 0,
+    });
+    swapSuggestions.value = data || [];
+  } finally {
+    swapLoading.value = false;
+  }
 }
 
 /** Rezept zu einem leeren Tag im Plan hinzufügen */
@@ -620,6 +664,8 @@ async function onAddEntryToPlan(dateStr) {
   swapEntry.value = null;
   swapDateStr.value = dateStr;
   swapSearch.value = '';
+  swapCategoryId.value = null;
+  swapOffset.value = 0;
 
   // Inception vermeiden: Plan-Modal sofort schließen
   if (showPlanModal.value) {
@@ -628,13 +674,78 @@ async function onAddEntryToPlan(dateStr) {
   }
 
   showSwapModal.value = true;
+  swapSuggestions.value = [];
+}
 
-  const dayIdx = (new Date(dateStr + 'T12:00:00').getDay() + 6) % 7;
-  const data = await store.fetchSuggestions({
-    dayIdx,
-    categoryId: mealTypes.value[0]?.id,
-  });
-  swapSuggestions.value = data || [];
+/** Slot/Kategorie im Swap-Modal wechseln → Vorschläge neu laden */
+async function onSwapCategoryChange(categoryId) {
+  swapCategoryId.value = categoryId;
+  swapOffset.value = 0;
+  swapLoading.value = true;
+  try {
+    const dayIdx = swapDateStr.value
+      ? (new Date(swapDateStr.value + 'T12:00:00').getDay() + 6) % 7
+      : (selectedDay.value?.dateStr
+          ? (new Date(selectedDay.value.dateStr + 'T12:00:00').getDay() + 6) % 7
+          : 0);
+    const data = await store.fetchSuggestions({
+      dayIdx,
+      categoryId: swapCategoryId.value,
+      search: swapSearch.value || null,
+      offset: 0,
+    });
+    swapSuggestions.value = data || [];
+  } finally {
+    swapLoading.value = false;
+  }
+}
+
+/** Suche im Swap-Modal ausführen */
+async function onSwapSearchChange() {
+  swapOffset.value = 0;
+  swapLoading.value = true;
+  try {
+    const dayIdx = swapDateStr.value
+      ? (new Date(swapDateStr.value + 'T12:00:00').getDay() + 6) % 7
+      : (selectedDay.value?.dateStr
+          ? (new Date(selectedDay.value.dateStr + 'T12:00:00').getDay() + 6) % 7
+          : 0);
+    const data = await store.fetchSuggestions({
+      dayIdx,
+      categoryId: swapCategoryId.value,
+      search: swapSearch.value || null,
+      offset: 0,
+    });
+    swapSuggestions.value = data || [];
+  } finally {
+    swapLoading.value = false;
+  }
+}
+
+/** Weitere Rezepte laden */
+async function loadMoreSuggestions() {
+  swapLoading.value = true;
+  try {
+    const dayIdx = swapDateStr.value
+      ? (new Date(swapDateStr.value + 'T12:00:00').getDay() + 6) % 7
+      : (selectedDay.value?.dateStr
+          ? (new Date(selectedDay.value.dateStr + 'T12:00:00').getDay() + 6) % 7
+          : 0);
+    const newOffset = swapOffset.value + 8;
+    const data = await store.fetchSuggestions({
+      dayIdx,
+      categoryId: swapCategoryId.value,
+      search: swapSearch.value || null,
+      offset: newOffset,
+    });
+    const more = data || [];
+    if (more.length > 0) {
+      swapSuggestions.value.push(...more);
+      swapOffset.value = newOffset;
+    }
+  } finally {
+    swapLoading.value = false;
+  }
 }
 
 async function doSwap(newRecipeId) {
@@ -644,7 +755,7 @@ async function doSwap(newRecipeId) {
     } else if (swapDateStr.value && selectedPlan.value) {
       // Neuen Eintrag für leeren Tag im Plan hinzufügen
       const dayIdx = (new Date(swapDateStr.value + 'T12:00:00').getDay() + 6) % 7;
-      await store.addEntry(selectedPlan.value.id, newRecipeId, dayIdx, mealTypes.value[0]?.id, 4, swapDateStr.value);
+      await store.addEntry(selectedPlan.value.id, newRecipeId, dayIdx, swapCategoryId.value || mealTypes.value[0]?.id, 4, swapDateStr.value);
     } else if (selectedDay.value) {
       // Neuen Eintrag für leeren Slot erstellen
       const dayIdx = (new Date(selectedDay.value.dateStr + 'T12:00:00').getDay() + 6) % 7;
@@ -655,10 +766,10 @@ async function doSwap(newRecipeId) {
       });
       const planId = plansForDay?.[0]?.id;
       if (planId) {
-        await store.addEntry(planId, newRecipeId, dayIdx, mealTypes.value[0]?.id, 4, selectedDay.value.dateStr);
+        await store.addEntry(planId, newRecipeId, dayIdx, swapCategoryId.value || mealTypes.value[0]?.id, 4, selectedDay.value.dateStr);
       } else {
         // Plan automatisch erstellen
-        await store.addRecipeToPlan(newRecipeId, dayIdx, mealTypes.value[0]?.id, selectedDay.value.dateStr, 4, selectedDay.value.dateStr);
+        await store.addRecipeToPlan(newRecipeId, dayIdx, swapCategoryId.value || mealTypes.value[0]?.id, selectedDay.value.dateStr, 4, selectedDay.value.dateStr);
       }
     }
     showSwapModal.value = false;

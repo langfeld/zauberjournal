@@ -788,12 +788,13 @@ export default async function mealplanRoutes(fastify) {
           excludeRecipeIds: { type: 'string' },
           planId: { type: 'integer' },
           limit: { type: 'integer', minimum: 1, maximum: 20, default: 8 },
+          offset: { type: 'integer', minimum: 0, default: 0 },
           search: { type: 'string', maxLength: 100 },
         },
       },
     },
   }, async (request) => {
-    const { dayIdx = 0, categoryId, limit = 8, planId, search } = request.query;
+    const { dayIdx = 0, categoryId, limit = 8, offset = 0, planId, search } = request.query;
     const excludeRecipeIds = request.query.excludeRecipeIds
       ? request.query.excludeRecipeIds.split(',').map(Number).filter(Boolean)
       : [];
@@ -814,7 +815,7 @@ export default async function mealplanRoutes(fastify) {
       }
     }
 
-    const suggestions = getSuggestions(request.user.id, { dayIdx, categoryId, categoryName, excludeRecipeIds, planId, limit, search, householdId: request.householdId, scoringWeights });
+    const suggestions = getSuggestions(request.user.id, { dayIdx, categoryId, categoryName, excludeRecipeIds, planId, limit, offset, search, householdId: request.householdId, scoringWeights });
     return { suggestions };
   });
 
